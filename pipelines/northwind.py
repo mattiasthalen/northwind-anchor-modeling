@@ -132,8 +132,8 @@ def source() -> t.Any:
 
 pipeline = dlt.pipeline(
     pipeline_name="northwind_pipeline",
-    destination=dlt.destinations.duckdb("./analytical_data_storage_system.duckdb"),
-    dataset_name="data_according_to_system",
+    destination=dlt.destinations.duckdb("./adss.duckdb"),
+    dataset_name="das",
     progress="alive_progress"
 )
 

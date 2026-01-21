@@ -196,3 +196,6 @@ cython_debug/
 # Artifacts
 *.duckdb
 *.wal
+
+# Claude
+.claude
