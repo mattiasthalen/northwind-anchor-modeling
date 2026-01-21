@@ -5,7 +5,9 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alive-progress>=3.3.0",
     "dlt[duckdb]>=1.21.0",
     "duckcli>=0.2.1",
+    "enlighten>=1.14.1",
     "sqlmesh>=0.228.4",
 ]
