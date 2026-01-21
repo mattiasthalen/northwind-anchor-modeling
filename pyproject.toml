@@ -1,0 +1,11 @@
+[project]
+name = "northwind-anchor-modeling"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dlt[duckdb]>=1.21.0",
+    "duckcli>=0.2.1",
+    "sqlmesh>=0.228.4",
+]
