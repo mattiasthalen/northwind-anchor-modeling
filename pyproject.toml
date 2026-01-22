@@ -7,5 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "alive-progress>=3.3.0",
     "dlt[duckdb]>=1.21.0",
+    "duckdb<1.4",
+    "pandas<3",
     "sqlmesh[lsp]>=0.228.4",
 ]

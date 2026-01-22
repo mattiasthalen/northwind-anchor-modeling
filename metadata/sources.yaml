@@ -1,0 +1,50 @@
+anchors:
+  OH:
+    sources:
+      - system: northwind
+        table: das.orders
+        key: OrderId
+
+  OD:
+    sources:
+      - system: northwind
+        table: das.order_details
+        key:
+          - OrderId
+          - ProductId
+
+  CU:
+    sources:
+      - system: northwind
+        table: das.customers
+        key: CustomerId
+
+  EM:
+    sources:
+      - system: northwind
+        table: das.employees
+        key: EmployeeId
+
+  SH:
+    sources:
+      - system: northwind
+        table: das.shippers
+        key: ShipperId
+
+  PR:
+    sources:
+      - system: northwind
+        table: das.products
+        key: ProductId
+
+  SU:
+    sources:
+      - system: northwind
+        table: das.suppliers
+        key: SupplierId
+
+  CA:
+    sources:
+      - system: northwind
+        table: das.categories
+        key: CategoryId
