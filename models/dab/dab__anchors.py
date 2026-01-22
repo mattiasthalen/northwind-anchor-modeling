@@ -27,7 +27,7 @@ _blueprints_for_model = [
 _sources = {bp["mnemonic"]: bp["sources"] for bp in _blueprint_data}
 
 @model(
-    "dab.anchor__@{name}",
+    "dab.anchor__@{mnemonic}__@{name}",
     is_sql=True,
     kind={
         "name": ModelKindName.INCREMENTAL_BY_UNIQUE_KEY,

@@ -229,10 +229,10 @@ def build_anchor_select(
 
     return (
         exp.select(
-            keyset_expr.as_(f"{mnemonic}_ID"),
-            exp.Literal.string(system).as_(f"{mnemonic}_ID__SYSTEM"),
-            tenant_expr.as_(f"{mnemonic}_ID__TENANT"),
-            loaded_at_expr.as_(f"{mnemonic}_ID__LOADED_AT"),
+            keyset_expr.as_(f"{mnemonic}_id"),
+            exp.Literal.string(system).as_(f"{mnemonic}_system"),
+            tenant_expr.as_(f"{mnemonic}_tenant"),
+            loaded_at_expr.as_(f"{mnemonic}_loaded_at"),
         )
         .from_(table)
     )
