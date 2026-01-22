@@ -1,13 +1,12 @@
 """
 Anchor Model Blueprint Generator
 
-Parses anchor model XML and source manifest YAML to generate
+Reads the unified model.yaml (synced from model.xml) and generates
 SQLMesh Python model blueprints using sqlglot.
 """
 
 from pathlib import Path
 from typing import Any
-import xml.etree.ElementTree as ET
 
 import yaml
 from sqlglot import exp
@@ -18,122 +17,109 @@ from sqlglot import exp
 # ---------------------------------------------------------------------------
 
 METADATA_DIR = Path(__file__).parent.parent / "metadata"
-MODEL_XML = METADATA_DIR / "model.xml"
-SOURCES_YAML = METADATA_DIR / "sources.yaml"
+MODEL_YAML = METADATA_DIR / "model.yaml"
 
 
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
 
-def parse_anchor_model(path: Path = MODEL_XML) -> dict[str, dict[str, Any]]:
+def load_model(path: Path = MODEL_YAML) -> dict[str, Any]:
     """
-    Parse anchor model XML and extract anchor definitions.
+    Load the unified model.yaml.
 
     Returns:
-        dict mapping mnemonic -> {descriptor, identity, ...}
-    """
-    tree = ET.parse(path)
-    root = tree.getroot()
-
-    anchors = {}
-    for anchor_elem in root.findall("anchor"):
-        mnemonic = anchor_elem.get("mnemonic")
-        anchors[mnemonic] = {
-            "descriptor": anchor_elem.get("descriptor"),
-            "identity": anchor_elem.get("identity", "int"),
-        }
-
-    return anchors
-
-
-def parse_sources(path: Path = SOURCES_YAML) -> dict[str, Any]:
-    """
-    Parse source manifest YAML.
-
-    Returns:
-        dict with 'anchors' key containing source mappings
+        dict with 'anchors' and 'ties' keys
     """
     with open(path) as f:
         return yaml.safe_load(f)
+
+
+def build_tie_name(roles: list[dict[str, Any]]) -> str:
+    """
+    Build canonical tie name from roles.
+
+    Format: {type1}_{role1}_{type2}_{role2}
+    The identifier=true role comes first.
+    """
+    sorted_roles = sorted(roles, key=lambda r: (not r["identifier"], r["type"]))
+    parts = []
+    for r in sorted_roles:
+        parts.extend([r["type"], r["role"]])
+    return "_".join(parts)
 
 
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
 
-class ManifestValidationError(Exception):
-    """Raised when source manifest doesn't match anchor model."""
+class ModelValidationError(Exception):
+    """Raised when model.yaml is invalid or incomplete."""
     pass
 
 
-def validate_manifest(xml_anchors: set[str], manifest_anchors: set[str]) -> None:
+def validate_anchor_sources(model: dict[str, Any]) -> None:
     """
-    Validate 1:1 correspondence between XML anchors and source manifest.
+    Validate each anchor has required source fields.
 
     Raises:
-        ManifestValidationError: If anchors don't match
-    """
-    # Anchors in XML but missing from manifest
-    orphaned = xml_anchors - manifest_anchors
-    if orphaned:
-        raise ManifestValidationError(
-            f"Anchors in XML have no source mapping: {sorted(orphaned)}"
-        )
-
-    # Anchors in manifest but not in XML
-    dangling = manifest_anchors - xml_anchors
-    if dangling:
-        raise ManifestValidationError(
-            f"Source manifest references unknown anchors: {sorted(dangling)}"
-        )
-
-
-def validate_sources(manifest: dict[str, Any]) -> None:
-    """
-    Validate each source entry has required fields.
-
-    Raises:
-        ManifestValidationError: If required fields are missing
+        ModelValidationError: If required fields are missing
     """
     required_fields = {"system", "table", "key"}  # tenant is optional
 
-    for mnemonic, config in manifest.get("anchors", {}).items():
+    for mnemonic, config in model.get("anchors", {}).items():
         sources = config.get("sources", [])
 
         if not sources:
-            raise ManifestValidationError(
+            raise ModelValidationError(
                 f"Anchor {mnemonic} has no sources defined"
             )
 
         for i, src in enumerate(sources):
             missing = required_fields - set(src.keys())
             if missing:
-                raise ManifestValidationError(
+                raise ModelValidationError(
                     f"Anchor {mnemonic} source[{i}] missing required fields: {sorted(missing)}"
                 )
 
 
-def validate_all() -> tuple[dict[str, dict], dict[str, Any]]:
+def validate_tie_sources(model: dict[str, Any]) -> None:
     """
-    Parse and validate both configs. Returns them if valid.
-
-    Returns:
-        tuple of (xml_anchors, manifest)
+    Validate each tie has required source fields.
 
     Raises:
-        ManifestValidationError: If validation fails
+        ModelValidationError: If required fields are missing
     """
-    xml_anchors = parse_anchor_model()
-    manifest = parse_sources()
+    for tie_name, config in model.get("ties", {}).items():
+        sources = config.get("sources", [])
 
-    validate_manifest(
-        xml_anchors=set(xml_anchors.keys()),
-        manifest_anchors=set(manifest.get("anchors", {}).keys()),
-    )
-    validate_sources(manifest)
+        if not sources:
+            raise ModelValidationError(f"Tie {tie_name} has no sources defined")
 
-    return xml_anchors, manifest
+        for i, src in enumerate(sources):
+            if "system" not in src:
+                raise ModelValidationError(
+                    f"Tie {tie_name} source[{i}] missing 'system'"
+                )
+            if "table" not in src:
+                raise ModelValidationError(
+                    f"Tie {tie_name} source[{i}] missing 'table'"
+                )
+            if "keys" not in src:
+                raise ModelValidationError(
+                    f"Tie {tie_name} source[{i}] missing 'keys'"
+                )
+
+
+def validate_model(model: dict[str, Any]) -> None:
+    """
+    Validate the unified model.yaml.
+
+    Raises:
+        ModelValidationError: If validation fails
+    """
+    validate_anchor_sources(model)
+    validate_tie_sources(model)
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +249,124 @@ def build_anchor_query(
 
 
 # ---------------------------------------------------------------------------
+# Tie SQL Generation
+# ---------------------------------------------------------------------------
+
+def build_tie_keyset_expression(
+    anchor_mnemonic: str,
+    role_suffix: str,
+    system: str,
+    key: str | list[str],
+    tenant: str | None = None,
+) -> exp.Expression:
+    """
+    Build keyset ID expression for a tie role.
+
+    The role_suffix distinguishes self-referencing ties (e.g., EM_to vs EM_reports).
+    """
+    if tenant:
+        prefix = f"{anchor_mnemonic}@{system}~{tenant}|"
+    else:
+        prefix = f"{anchor_mnemonic}@{system}|"
+
+    keys = [key] if isinstance(key, str) else key
+
+    parts: list[exp.Expression] = [exp.Literal.string(prefix)]
+
+    for i, k in enumerate(keys):
+        if i > 0:
+            parts.append(exp.Literal.string("|"))
+        snake_key = to_snake_case(k)
+        parts.append(
+            exp.Cast(
+                this=exp.Column(this=exp.to_identifier(snake_key)),
+                to=exp.DataType.build("VARCHAR"),
+            )
+        )
+
+    result = parts[0]
+    for part in parts[1:]:
+        result = exp.Concat(expressions=[result, part])
+
+    return result
+
+
+def build_tie_select(
+    tie_name: str,
+    roles: list[dict[str, Any]],
+    source: dict[str, Any],
+    execution_ts: str,
+) -> exp.Select:
+    """
+    Build a SELECT statement for one tie source.
+
+    Returns columns for each anchor ID plus loaded_at.
+    """
+    system = source["system"]
+    tenant = source.get("tenant")
+    table = source["table"]
+    keys_config = source["keys"]
+
+    columns = []
+
+    # For each role, build the keyset expression
+    for role in roles:
+        anchor_type = role["type"]
+        role_name = role["role"]
+
+        # Handle self-referencing ties: key might be like "EM_to" or "EM_reports"
+        role_key = f"{anchor_type}_{role_name}"
+        if role_key in keys_config:
+            key = keys_config[role_key]
+            col_name = f"{anchor_type}_{role_name}_id"
+        elif anchor_type in keys_config:
+            key = keys_config[anchor_type]
+            col_name = f"{anchor_type}_id"
+        else:
+            raise ValueError(
+                f"Tie {tie_name}: no key mapping for role {role_key} or {anchor_type}"
+            )
+
+        keyset_expr = build_tie_keyset_expression(
+            anchor_type, role_name, system, key, tenant
+        )
+        columns.append(keyset_expr.as_(col_name))
+
+    # Add loaded_at
+    loaded_at_expr = exp.cast(
+        exp.Literal.string(execution_ts),
+        exp.DataType.build("timestamp")
+    )
+    columns.append(loaded_at_expr.as_("loaded_at"))
+
+    return exp.select(*columns).from_(table)
+
+
+def build_tie_query(
+    tie_name: str,
+    roles: list[dict[str, Any]],
+    sources: list[dict[str, Any]],
+    execution_ts: str,
+) -> exp.Expression:
+    """
+    Build UNION ALL query for all sources of a tie.
+    """
+    if not sources:
+        raise ValueError(f"No sources defined for tie {tie_name}")
+
+    selects = [build_tie_select(tie_name, roles, src, execution_ts) for src in sources]
+
+    if len(selects) == 1:
+        return selects[0]
+
+    result = selects[0]
+    for select in selects[1:]:
+        result = exp.Union(this=result, expression=select, distinct=False)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Blueprint Generation
 # ---------------------------------------------------------------------------
 
@@ -274,16 +378,57 @@ def get_anchor_blueprints() -> list[dict[str, Any]]:
         List of dicts with keys: mnemonic, descriptor, sources
         (sources is raw config, query built at runtime to avoid serialization issues)
     """
-    xml_anchors, manifest = validate_all()
+    model = load_model()
+    validate_anchor_sources(model)
 
     blueprints = []
-    for mnemonic, xml_config in xml_anchors.items():
-        sources = manifest["anchors"][mnemonic]["sources"]
-
+    for mnemonic, config in model["anchors"].items():
         blueprints.append({
             "mnemonic": mnemonic,
-            "descriptor": xml_config["descriptor"],
-            "sources": sources,  # raw config, not pre-built query
+            "descriptor": config["descriptor"],
+            "sources": config.get("sources", []),
         })
 
     return blueprints
+
+
+def get_tie_blueprints() -> list[dict[str, Any]]:
+    """
+    Generate blueprint configurations for all ties.
+
+    Returns:
+        List of dicts with keys: tie_name, roles, sources, unique_key
+    """
+    model = load_model()
+    validate_tie_sources(model)
+
+    blueprints = []
+    for tie_name, config in model["ties"].items():
+        roles = config["roles"]
+        sources = config.get("sources", [])
+
+        # Build unique key columns based on roles
+        # For self-referencing ties, include role in column name
+        unique_keys = []
+        anchor_counts: dict[str, int] = {}
+        for r in roles:
+            anchor_counts[r["type"]] = anchor_counts.get(r["type"], 0) + 1
+
+        for r in roles:
+            anchor_type = r["type"]
+            if anchor_counts[anchor_type] > 1:
+                # Self-referencing: use {type}_{role}_id
+                unique_keys.append(f"{anchor_type}_{r['role']}_id")
+            else:
+                unique_keys.append(f"{anchor_type}_id")
+
+        blueprints.append({
+            "tie_name": tie_name,
+            "roles": roles,
+            "sources": sources,
+            "unique_key": unique_keys,
+        })
+
+    return blueprints
+
+

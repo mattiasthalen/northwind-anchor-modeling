@@ -1,0 +1,356 @@
+schema:
+  format: 0.99.16
+  date: '2026-01-22'
+  time: '12:05:49'
+  metadata:
+    changingRange: timestamp
+    encapsulation: public
+    identity: integer
+    metadataPrefix: Metadata
+    metadataType: integer
+    metadataUsage: true
+    changingSuffix: ChangedAt
+    identitySuffix: ID
+    positIdentity: integer
+    positGenerator: true
+    positingRange: timestamp
+    positingSuffix: PositedAt
+    positorRange: smallint
+    positorSuffix: Positor
+    reliabilityRange: decimal(5,2)
+    reliabilitySuffix: Reliability
+    defaultReliability: 1
+    deleteReliability: 0
+    assertionSuffix: Assertion
+    partitioning: true
+    entityIntegrity: true
+    restatability: true
+    idempotency: false
+    assertiveness: true
+    naming: improved
+    positSuffix: Posit
+    annexSuffix: Annex
+    chronon: timestamp
+    now: current_timestamp
+    dummySuffix: Dummy
+    versionSuffix: Version
+    statementTypeSuffix: StatementType
+    checksumSuffix: Checksum
+    businessViews: true
+    decisiveness: true
+    equivalence: true
+    equivalentSuffix: EQ
+    equivalentRange: smallint
+    databaseTarget: PostgreSQL
+    temporalization: uni
+    deletability: false
+    deletablePrefix: Deletable
+    deletionSuffix: Deleted
+    privacy: Ignore
+    checksum: false
+    triggers: true
+    knotAliases: true
+anchors:
+  OH:
+    mnemonic: OH
+    descriptor: Orders
+    identity: integer
+    metadata:
+      capsule: public
+      generator: true
+    layout:
+      x: 686.33
+      y: 415.21
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.orders
+      key: OrderId
+  OD:
+    mnemonic: OD
+    descriptor: OrderDetails
+    identity: integer
+    metadata:
+      capsule: public
+      generator: true
+    layout:
+      x: 576.89
+      y: 224.09
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.order_details
+      key:
+      - OrderId
+      - ProductId
+  CU:
+    mnemonic: CU
+    descriptor: Customers
+    identity: integer
+    metadata:
+      capsule: public
+      generator: true
+    layout:
+      x: 618.07
+      y: 544.43
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.customers
+      key: CustomerId
+  EM:
+    mnemonic: EM
+    descriptor: Employees
+    identity: integer
+    metadata:
+      capsule: public
+      generator: true
+    layout:
+      x: 923.01
+      y: 461.11
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.employees
+      key: EmployeeId
+  SH:
+    mnemonic: SH
+    descriptor: Shippers
+    identity: integer
+    metadata:
+      capsule: public
+      generator: true
+    layout:
+      x: 495.36
+      y: 435.73
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.shippers
+      key: ShipperId
+  PR:
+    mnemonic: PR
+    descriptor: Products
+    identity: integer
+    metadata:
+      capsule: public
+      generator: true
+    layout:
+      x: 432.99
+      y: 145.57
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.products
+      key: ProductId
+  SU:
+    mnemonic: SU
+    descriptor: Suppliers
+    identity: integer
+    metadata:
+      capsule: public
+      generator: true
+    layout:
+      x: 433.61
+      y: -1.01
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.suppliers
+      key: SupplierId
+  CA:
+    mnemonic: CA
+    descriptor: Categories
+    identity: integer
+    metadata:
+      capsule: public
+      generator: true
+    layout:
+      x: 257.37
+      y: 135.85
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.categories
+      key: CategoryId
+ties:
+  OD_isContained_OH_in:
+    roles:
+    - role: in
+      type: OH
+      identifier: false
+    - role: isContained
+      type: OD
+      identifier: true
+    metadata:
+      capsule: public
+      deletable: false
+      idempotent: false
+    layout:
+      x: 626.91
+      y: 301.96
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.order_details
+      keys:
+        OH: OrderId
+        OD:
+        - OrderId
+        - ProductId
+  OH_isPlaced_CU_by:
+    roles:
+    - role: isPlaced
+      type: OH
+      identifier: true
+    - role: by
+      type: CU
+      identifier: false
+    metadata:
+      capsule: public
+      deletable: false
+      idempotent: false
+    layout:
+      x: 655.64
+      y: 495.41
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.orders
+      keys:
+        OH: OrderId
+        CU: CustomerId
+  OH_isHandled_EM_by:
+    roles:
+    - role: isHandled
+      type: OH
+      identifier: true
+    - role: by
+      type: EM
+      identifier: false
+    metadata:
+      capsule: public
+      deletable: false
+      idempotent: false
+    layout:
+      x: 795.41
+      y: 455.37
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.orders
+      keys:
+        OH: OrderId
+        EM: EmployeeId
+  OH_isShipped_SH_via:
+    roles:
+    - role: isShipped
+      type: OH
+      identifier: true
+    - role: via
+      type: SH
+      identifier: false
+    metadata:
+      capsule: public
+      deletable: false
+      idempotent: false
+    layout:
+      x: 573.36
+      y: 422.59
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.orders
+      keys:
+        OH: OrderId
+        SH: ShipVia
+  OD_refers_PR_to:
+    roles:
+    - role: refers
+      type: OD
+      identifier: true
+    - role: to
+      type: PR
+      identifier: false
+    metadata:
+      capsule: public
+      deletable: false
+      idempotent: false
+    layout:
+      x: 489.08
+      y: 200.86
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.order_details
+      keys:
+        OD:
+        - OrderId
+        - ProductId
+        PR: ProductId
+  PR_isSupplied_SU_by:
+    roles:
+    - role: isSupplied
+      type: PR
+      identifier: true
+    - role: by
+      type: SU
+      identifier: false
+    metadata:
+      capsule: public
+      deletable: false
+      idempotent: false
+    layout:
+      x: 430.11
+      y: 41.32
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.products
+      keys:
+        PR: ProductId
+        SU: SupplierId
+  PR_isCategorized_CA_as:
+    roles:
+    - role: isCategorized
+      type: PR
+      identifier: true
+    - role: as
+      type: CA
+      identifier: false
+    metadata:
+      capsule: public
+      deletable: false
+      idempotent: false
+    layout:
+      x: 334.38
+      y: 140.68
+      fixed: false
+    sources:
+    - system: northwind
+      table: das.products
+      keys:
+        PR: ProductId
+        CA: CategoryId
+  EM_reports_EM_to:
+    roles:
+    - role: to
+      type: EM
+      identifier: false
+    - role: reports
+      type: EM
+      identifier: true
+    metadata:
+      capsule: public
+      deletable: false
+      idempotent: false
+    layout:
+      x: 1021.0
+      y: 453.0
+      fixed: true
+    sources:
+    - system: northwind
+      table: das.employees
+      keys:
+        EM_reports: EmployeeId
+        EM_to: ReportsTo
