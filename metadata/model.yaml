@@ -65,7 +65,7 @@ anchors:
     sources:
     - system: northwind
       table: das.orders
-      key: OrderId
+      key: order_id
   OD:
     mnemonic: OD
     descriptor: OrderDetails
@@ -81,8 +81,8 @@ anchors:
     - system: northwind
       table: das.order_details
       key:
-      - OrderId
-      - ProductId
+      - order_id
+      - product_id
   CU:
     mnemonic: CU
     descriptor: Customers
@@ -97,7 +97,7 @@ anchors:
     sources:
     - system: northwind
       table: das.customers
-      key: CustomerId
+      key: customer_id
   EM:
     mnemonic: EM
     descriptor: Employees
@@ -112,7 +112,7 @@ anchors:
     sources:
     - system: northwind
       table: das.employees
-      key: EmployeeId
+      key: employee_id
   SH:
     mnemonic: SH
     descriptor: Shippers
@@ -127,7 +127,7 @@ anchors:
     sources:
     - system: northwind
       table: das.shippers
-      key: ShipperId
+      key: shipper_id
   PR:
     mnemonic: PR
     descriptor: Products
@@ -142,7 +142,7 @@ anchors:
     sources:
     - system: northwind
       table: das.products
-      key: ProductId
+      key: product_id
   SU:
     mnemonic: SU
     descriptor: Suppliers
@@ -157,7 +157,7 @@ anchors:
     sources:
     - system: northwind
       table: das.suppliers
-      key: SupplierId
+      key: supplier_id
   CA:
     mnemonic: CA
     descriptor: Categories
@@ -172,7 +172,7 @@ anchors:
     sources:
     - system: northwind
       table: das.categories
-      key: CategoryId
+      key: category_id
 ties:
   OD_isContained_OH_in:
     roles:
@@ -194,10 +194,10 @@ ties:
     - system: northwind
       table: das.order_details
       keys:
-        OH: OrderId
+        OH: order_id
         OD:
-        - OrderId
-        - ProductId
+        - order_id
+        - product_id
   OH_isPlaced_CU_by:
     roles:
     - role: isPlaced
@@ -218,8 +218,8 @@ ties:
     - system: northwind
       table: das.orders
       keys:
-        OH: OrderId
-        CU: CustomerId
+        OH: order_id
+        CU: customer_id
   OH_isHandled_EM_by:
     roles:
     - role: isHandled
@@ -240,8 +240,8 @@ ties:
     - system: northwind
       table: das.orders
       keys:
-        OH: OrderId
-        EM: EmployeeId
+        OH: order_id
+        EM: employee_id
   OH_isShipped_SH_via:
     roles:
     - role: isShipped
@@ -262,8 +262,8 @@ ties:
     - system: northwind
       table: das.orders
       keys:
-        OH: OrderId
-        SH: ShipVia
+        OH: order_id
+        SH: ship_via
   OD_refers_PR_to:
     roles:
     - role: refers
@@ -285,9 +285,9 @@ ties:
       table: das.order_details
       keys:
         OD:
-        - OrderId
-        - ProductId
-        PR: ProductId
+        - order_id
+        - product_id
+        PR: product_id
   PR_isSupplied_SU_by:
     roles:
     - role: isSupplied
@@ -308,8 +308,8 @@ ties:
     - system: northwind
       table: das.products
       keys:
-        PR: ProductId
-        SU: SupplierId
+        PR: product_id
+        SU: supplier_id
   PR_isCategorized_CA_as:
     roles:
     - role: isCategorized
@@ -330,8 +330,8 @@ ties:
     - system: northwind
       table: das.products
       keys:
-        PR: ProductId
-        CA: CategoryId
+        PR: product_id
+        CA: category_id
   EM_reports_EM_to:
     roles:
     - role: to
@@ -352,5 +352,5 @@ ties:
     - system: northwind
       table: das.employees
       keys:
-        EM_reports: EmployeeId
-        EM_to: ReportsTo
+        EM_reports: employee_id
+        EM_to: reports_to

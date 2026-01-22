@@ -126,18 +126,8 @@ def validate_model(model: dict[str, Any]) -> None:
 # SQL Generation (sqlglot)
 # ---------------------------------------------------------------------------
 
-import re
-
-
-def to_snake_case(name: str) -> str:
-    """Convert PascalCase/camelCase to snake_case."""
-    # Insert underscore before uppercase letters and lowercase the result
-    s1 = re.sub(r'(.)([A-Z][a-z]+)', r'\1_\2', name)
-    return re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
-
-
 def build_keyset_expression(
-    mnemonic: str,
+    descriptor: str,
     system: str,
     key: str | list[str],
     tenant: str | None = None,
@@ -145,15 +135,15 @@ def build_keyset_expression(
     """
     Build the keyset ID expression.
 
-    With tenant:    {mnemonic}@{system}~{tenant}|{key_value(s)}
-    Without tenant: {mnemonic}@{system}|{key_value(s)}
+    With tenant:    {descriptor}@{system}~{tenant}|{key_value(s)}
+    Without tenant: {descriptor}@{system}|{key_value(s)}
 
     For composite keys, values are pipe-delimited.
     """
     if tenant:
-        prefix = f"{mnemonic}@{system}~{tenant}|"
+        prefix = f"{descriptor}@{system}~{tenant}|"
     else:
-        prefix = f"{mnemonic}@{system}|"
+        prefix = f"{descriptor}@{system}|"
 
     # Normalize key to list
     keys = [key] if isinstance(key, str) else key
@@ -164,11 +154,10 @@ def build_keyset_expression(
     for i, k in enumerate(keys):
         if i > 0:
             parts.append(exp.Literal.string("|"))
-        # Convert key to snake_case and cast to varchar for concatenation
-        snake_key = to_snake_case(k)
+        # Keys are already snake_case from model.yaml
         parts.append(
             exp.Cast(
-                this=exp.Column(this=exp.to_identifier(snake_key)),
+                this=exp.Column(this=exp.to_identifier(k)),
                 to=exp.DataType.build("VARCHAR"),
             )
         )
@@ -183,6 +172,7 @@ def build_keyset_expression(
 
 def build_anchor_select(
     mnemonic: str,
+    descriptor: str,
     source: dict[str, Any],
     execution_ts: str,
 ) -> exp.Select:
@@ -199,7 +189,7 @@ def build_anchor_select(
     table = source["table"]
     key = source["key"]
 
-    keyset_expr = build_keyset_expression(mnemonic, system, key, tenant)
+    keyset_expr = build_keyset_expression(descriptor, system, key, tenant)
 
     # Tenant column: string literal if present, NULL if not
     tenant_expr = (
@@ -226,6 +216,7 @@ def build_anchor_select(
 
 def build_anchor_query(
     mnemonic: str,
+    descriptor: str,
     sources: list[dict[str, Any]],
     execution_ts: str,
 ) -> exp.Expression:
@@ -235,7 +226,7 @@ def build_anchor_query(
     if not sources:
         raise ValueError(f"No sources defined for anchor {mnemonic}")
 
-    selects = [build_anchor_select(mnemonic, src, execution_ts) for src in sources]
+    selects = [build_anchor_select(mnemonic, descriptor, src, execution_ts) for src in sources]
 
     if len(selects) == 1:
         return selects[0]
@@ -253,21 +244,18 @@ def build_anchor_query(
 # ---------------------------------------------------------------------------
 
 def build_tie_keyset_expression(
-    anchor_mnemonic: str,
-    role_suffix: str,
+    descriptor: str,
     system: str,
     key: str | list[str],
     tenant: str | None = None,
 ) -> exp.Expression:
     """
     Build keyset ID expression for a tie role.
-
-    The role_suffix distinguishes self-referencing ties (e.g., EM_to vs EM_reports).
     """
     if tenant:
-        prefix = f"{anchor_mnemonic}@{system}~{tenant}|"
+        prefix = f"{descriptor}@{system}~{tenant}|"
     else:
-        prefix = f"{anchor_mnemonic}@{system}|"
+        prefix = f"{descriptor}@{system}|"
 
     keys = [key] if isinstance(key, str) else key
 
@@ -276,10 +264,10 @@ def build_tie_keyset_expression(
     for i, k in enumerate(keys):
         if i > 0:
             parts.append(exp.Literal.string("|"))
-        snake_key = to_snake_case(k)
+        # Keys are already snake_case from model.yaml
         parts.append(
             exp.Cast(
-                this=exp.Column(this=exp.to_identifier(snake_key)),
+                this=exp.Column(this=exp.to_identifier(k)),
                 to=exp.DataType.build("VARCHAR"),
             )
         )
@@ -295,6 +283,7 @@ def build_tie_select(
     tie_name: str,
     roles: list[dict[str, Any]],
     source: dict[str, Any],
+    anchor_descriptors: dict[str, str],
     execution_ts: str,
 ) -> exp.Select:
     """
@@ -313,6 +302,7 @@ def build_tie_select(
     for role in roles:
         anchor_type = role["type"]
         role_name = role["role"]
+        descriptor = anchor_descriptors[anchor_type]
 
         # Handle self-referencing ties: key might be like "EM_to" or "EM_reports"
         role_key = f"{anchor_type}_{role_name}"
@@ -327,9 +317,7 @@ def build_tie_select(
                 f"Tie {tie_name}: no key mapping for role {role_key} or {anchor_type}"
             )
 
-        keyset_expr = build_tie_keyset_expression(
-            anchor_type, role_name, system, key, tenant
-        )
+        keyset_expr = build_tie_keyset_expression(descriptor, system, key, tenant)
         columns.append(keyset_expr.as_(col_name))
 
     # Add loaded_at
@@ -346,6 +334,7 @@ def build_tie_query(
     tie_name: str,
     roles: list[dict[str, Any]],
     sources: list[dict[str, Any]],
+    anchor_descriptors: dict[str, str],
     execution_ts: str,
 ) -> exp.Expression:
     """
@@ -354,7 +343,7 @@ def build_tie_query(
     if not sources:
         raise ValueError(f"No sources defined for tie {tie_name}")
 
-    selects = [build_tie_select(tie_name, roles, src, execution_ts) for src in sources]
+    selects = [build_tie_select(tie_name, roles, src, anchor_descriptors, execution_ts) for src in sources]
 
     if len(selects) == 1:
         return selects[0]
@@ -397,10 +386,16 @@ def get_tie_blueprints() -> list[dict[str, Any]]:
     Generate blueprint configurations for all ties.
 
     Returns:
-        List of dicts with keys: tie_name, roles, sources, unique_key
+        List of dicts with keys: tie_name, roles, sources, unique_key, anchor_descriptors
     """
     model = load_model()
     validate_tie_sources(model)
+
+    # Build mnemonic -> descriptor lookup
+    anchor_descriptors = {
+        mnemonic: config["descriptor"]
+        for mnemonic, config in model["anchors"].items()
+    }
 
     blueprints = []
     for tie_name, config in model["ties"].items():
@@ -427,6 +422,7 @@ def get_tie_blueprints() -> list[dict[str, Any]]:
             "roles": roles,
             "sources": sources,
             "unique_key": unique_keys,
+            "anchor_descriptors": anchor_descriptors,
         })
 
     return blueprints

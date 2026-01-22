@@ -5,7 +5,7 @@
     <layout x="686.33" y="415.21" fixed="false" />
     <description>
       <source system="northwind" table="das.orders">
-        <key>OrderId</key>
+        <key>order_id</key>
       </source>
     </description>
   </anchor>
@@ -15,8 +15,8 @@
     <description>
       <source system="northwind" table="das.order_details">
         <key>
-          <col>OrderId</col>
-          <col>ProductId</col>
+          <col>order_id</col>
+          <col>product_id</col>
         </key>
       </source>
     </description>
@@ -26,7 +26,7 @@
     <layout x="618.07" y="544.43" fixed="false" />
     <description>
       <source system="northwind" table="das.customers">
-        <key>CustomerId</key>
+        <key>customer_id</key>
       </source>
     </description>
   </anchor>
@@ -35,7 +35,7 @@
     <layout x="923.01" y="461.11" fixed="false" />
     <description>
       <source system="northwind" table="das.employees">
-        <key>EmployeeId</key>
+        <key>employee_id</key>
       </source>
     </description>
   </anchor>
@@ -44,7 +44,7 @@
     <layout x="495.36" y="435.73" fixed="false" />
     <description>
       <source system="northwind" table="das.shippers">
-        <key>ShipperId</key>
+        <key>shipper_id</key>
       </source>
     </description>
   </anchor>
@@ -53,7 +53,7 @@
     <layout x="432.99" y="145.57" fixed="false" />
     <description>
       <source system="northwind" table="das.products">
-        <key>ProductId</key>
+        <key>product_id</key>
       </source>
     </description>
   </anchor>
@@ -62,7 +62,7 @@
     <layout x="433.61" y="-1.01" fixed="false" />
     <description>
       <source system="northwind" table="das.suppliers">
-        <key>SupplierId</key>
+        <key>supplier_id</key>
       </source>
     </description>
   </anchor>
@@ -71,7 +71,7 @@
     <layout x="257.37" y="135.85" fixed="false" />
     <description>
       <source system="northwind" table="das.categories">
-        <key>CategoryId</key>
+        <key>category_id</key>
       </source>
     </description>
   </anchor>
@@ -80,10 +80,10 @@
       <description>
         <source system="northwind" table="das.order_details">
           <keys>
-            <OH>OrderId</OH>
+            <OH>order_id</OH>
             <OD>
-              <col>OrderId</col>
-              <col>ProductId</col>
+              <col>order_id</col>
+              <col>product_id</col>
             </OD>
           </keys>
         </source>
@@ -98,8 +98,8 @@
       <description>
         <source system="northwind" table="das.orders">
           <keys>
-            <OH>OrderId</OH>
-            <CU>CustomerId</CU>
+            <OH>order_id</OH>
+            <CU>customer_id</CU>
           </keys>
         </source>
       </description>
@@ -113,8 +113,8 @@
       <description>
         <source system="northwind" table="das.orders">
           <keys>
-            <OH>OrderId</OH>
-            <EM>EmployeeId</EM>
+            <OH>order_id</OH>
+            <EM>employee_id</EM>
           </keys>
         </source>
       </description>
@@ -128,8 +128,8 @@
       <description>
         <source system="northwind" table="das.orders">
           <keys>
-            <OH>OrderId</OH>
-            <SH>ShipVia</SH>
+            <OH>order_id</OH>
+            <SH>ship_via</SH>
           </keys>
         </source>
       </description>
@@ -144,10 +144,10 @@
         <source system="northwind" table="das.order_details">
           <keys>
             <OD>
-              <col>OrderId</col>
-              <col>ProductId</col>
+              <col>order_id</col>
+              <col>product_id</col>
             </OD>
-            <PR>ProductId</PR>
+            <PR>product_id</PR>
           </keys>
         </source>
       </description>
@@ -161,8 +161,8 @@
       <description>
         <source system="northwind" table="das.products">
           <keys>
-            <PR>ProductId</PR>
-            <SU>SupplierId</SU>
+            <PR>product_id</PR>
+            <SU>supplier_id</SU>
           </keys>
         </source>
       </description>
@@ -176,8 +176,8 @@
       <description>
         <source system="northwind" table="das.products">
           <keys>
-            <PR>ProductId</PR>
-            <CA>CategoryId</CA>
+            <PR>product_id</PR>
+            <CA>category_id</CA>
           </keys>
         </source>
       </description>
@@ -191,8 +191,8 @@
       <description>
         <source system="northwind" table="das.employees">
           <keys>
-            <EM_reports>EmployeeId</EM_reports>
-            <EM_to>ReportsTo</EM_to>
+            <EM_reports>employee_id</EM_reports>
+            <EM_to>reports_to</EM_to>
           </keys>
         </source>
       </description>

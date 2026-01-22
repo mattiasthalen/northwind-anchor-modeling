@@ -19,6 +19,7 @@ Files:
 
 from pathlib import Path
 from typing import Any
+import re
 import xml.etree.ElementTree as ET
 
 import yaml
@@ -30,6 +31,16 @@ import yaml
 SCRIPT_DIR = Path(__file__).parent
 MODEL_XML = SCRIPT_DIR / "model.xml"
 MODEL_YAML = SCRIPT_DIR / "model.yaml"
+
+
+# ---------------------------------------------------------------------------
+# Case Conversion
+# ---------------------------------------------------------------------------
+
+def to_snake_case(name: str) -> str:
+    """Convert PascalCase/camelCase to snake_case."""
+    s1 = re.sub(r'(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
 
 # ---------------------------------------------------------------------------
@@ -74,16 +85,16 @@ def parse_description_sources(elem: ET.Element) -> list[dict[str, Any]]:
         key_elems = source_elem.findall("key")
         if key_elems:
             if len(key_elems) == 1 and not key_elems[0].findall("col"):
-                source["key"] = key_elems[0].text
+                source["key"] = to_snake_case(key_elems[0].text)
             else:
                 # Composite key
                 keys = []
                 for key_elem in key_elems:
                     col_elems = key_elem.findall("col")
                     if col_elems:
-                        keys = [col.text for col in col_elems]
+                        keys = [to_snake_case(col.text) for col in col_elems]
                     elif key_elem.text:
-                        keys.append(key_elem.text)
+                        keys.append(to_snake_case(key_elem.text))
                 source["key"] = keys
 
         # Parse nested <keys> for tie key mappings
@@ -94,9 +105,9 @@ def parse_description_sources(elem: ET.Element) -> list[dict[str, Any]]:
                 anchor = key_elem.tag
                 col_elems = key_elem.findall("col")
                 if col_elems:
-                    key_map[anchor] = [col.text for col in col_elems]
+                    key_map[anchor] = [to_snake_case(col.text) for col in col_elems]
                 elif key_elem.text:
-                    key_map[anchor] = key_elem.text
+                    key_map[anchor] = to_snake_case(key_elem.text)
             source["keys"] = key_map
 
         sources.append(source)
