@@ -22,10 +22,66 @@ from sqlmesh.core.model.kind import ModelKindName
 # Configuration
 # ---------------------------------------------------------------------------
 
+_CONFIG_PATH = Path(__file__).parent / "config.yaml"
 MODEL_XML = Path(__file__).parent / "model.xml"
 SOURCES_YAML = Path(__file__).parent / "sources.yaml"
 
-TARGET_SCHEMA = "dab"
+# Load configuration
+with open(_CONFIG_PATH) as f:
+    _config = yaml.safe_load(f)
+
+TARGET_DATABASE = _config["target_database"]
+TARGET_SCHEMA = _config["target_schema"]
+OUTPUT_CASE_STYLE = _config["output_case_style"]
+
+
+# ---------------------------------------------------------------------------
+# Column Name Conversion
+# ---------------------------------------------------------------------------
+
+
+def _camel_to_snake(name: str) -> str:
+    """
+    Convert camelCase to snake_case with special handling for underscores.
+
+    Rule: If the camelCase name contains underscores (e.g., "bool_isCamelCase"),
+    preserve them by doubling them in the output (e.g., "bool__is_camel_case").
+
+    Examples:
+        orderId -> order_id
+        customerId -> customer_id
+        bool_isCamelCase -> bool__is_camel_case
+        EM_reports -> em__reports
+    """
+    import re
+
+    # First, identify any existing underscores and mark them for doubling
+    # Replace _ with a placeholder that won't conflict
+    name = name.replace('_', '___UNDERSCORE___')
+
+    # Insert underscores before uppercase letters
+    name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', name)
+
+    # Convert to lowercase
+    name = name.lower()
+
+    # Replace the placeholder with double underscores
+    name = name.replace('___underscore___', '__')
+
+    return name
+
+
+def _format_column_name(name: str) -> str:
+    """
+    Format column name according to OUTPUT_CASE_STYLE.
+
+    Assumes input is in camelCase (matching sources.yaml).
+    """
+    if OUTPUT_CASE_STYLE == "snake_case":
+        return _camel_to_snake(name)
+    else:  # camelCase
+        return name
+
 
 # ---------------------------------------------------------------------------
 # Model Loading & Validation

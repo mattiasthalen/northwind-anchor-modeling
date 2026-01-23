@@ -1,0 +1,11 @@
+# Anchor Modeling Blueprint Configuration
+
+# Target database for generated models
+target_database: adss
+
+# Target schema for generated models
+target_schema: dab
+
+# Column naming style for generated SQL
+# Options: "snake_case" or "camelCase"
+output_case_style: snake_case
