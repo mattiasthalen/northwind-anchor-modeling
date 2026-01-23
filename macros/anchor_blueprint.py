@@ -219,24 +219,91 @@ def build_anchor_query(
     descriptor: str,
     sources: list[dict[str, Any]],
     execution_ts: str,
+    model_name: str,
 ) -> exp.Expression:
     """
-    Build UNION ALL query for all sources of an anchor.
+    Build incremental anchor query with anti-join pattern.
+
+    Structure:
+        WITH target AS (
+            SELECT {mnemonic}_id FROM model QUALIFY ROW_NUMBER() OVER (...) = 1
+        ),
+        source AS (
+            SELECT ... FROM source_tables (UNION ALL if multiple)
+        )
+        SELECT source.* FROM source
+        ANTI JOIN target ON {mnemonic}_id
     """
     if not sources:
         raise ValueError(f"No sources defined for anchor {mnemonic}")
 
+    # Column names for this anchor
+    id_col = f"{mnemonic}_id"
+    system_col = f"{mnemonic}_system"
+    tenant_col = f"{mnemonic}_tenant"
+    loaded_at_col = f"{mnemonic}_loaded_at"
+
+    # Build source selects (UNION ALL if multiple)
     selects = [build_anchor_select(mnemonic, descriptor, src, execution_ts) for src in sources]
 
     if len(selects) == 1:
-        return selects[0]
+        source_query = selects[0]
+    else:
+        source_query = selects[0]
+        for select in selects[1:]:
+            source_query = exp.Union(this=source_query, expression=select, distinct=False)
 
-    # UNION ALL all selects
-    result = selects[0]
-    for select in selects[1:]:
-        result = exp.Union(this=result, expression=select, distinct=False)
+    # Build target CTE: SELECT id_col FROM model QUALIFY ROW_NUMBER() = 1
+    window = exp.Window(
+        this=exp.RowNumber(),
+        partition_by=[exp.Column(this=exp.to_identifier(id_col))],
+        order=exp.Order(expressions=[exp.Ordered(this=exp.Column(this=exp.to_identifier(loaded_at_col)), desc=True)]),
+    )
 
-    return result
+    target_select = (
+        exp.select(exp.Column(this=exp.to_identifier(id_col)))
+        .from_(model_name)
+        .qualify(exp.EQ(this=window, expression=exp.Literal.number(1)))
+    )
+
+    # Build join condition
+    join_on = exp.EQ(
+        this=exp.Column(this=exp.to_identifier(id_col), table=exp.to_identifier("source")),
+        expression=exp.Column(this=exp.to_identifier(id_col), table=exp.to_identifier("target")),
+    )
+
+    # Select explicit columns with types for self-referencing model inference
+    outer_columns = [
+        exp.Cast(
+            this=exp.Column(this=exp.to_identifier(id_col), table=exp.to_identifier("source")),
+            to=exp.DataType.build("VARCHAR"),
+        ).as_(id_col),
+        exp.Cast(
+            this=exp.Column(this=exp.to_identifier(system_col), table=exp.to_identifier("source")),
+            to=exp.DataType.build("VARCHAR"),
+        ).as_(system_col),
+        exp.Cast(
+            this=exp.Column(this=exp.to_identifier(tenant_col), table=exp.to_identifier("source")),
+            to=exp.DataType.build("VARCHAR"),
+        ).as_(tenant_col),
+        exp.Cast(
+            this=exp.Column(this=exp.to_identifier(loaded_at_col), table=exp.to_identifier("source")),
+            to=exp.DataType.build("TIMESTAMP"),
+        ).as_(loaded_at_col),
+    ]
+
+    main_select = (
+        exp.select(*outer_columns)
+        .from_(exp.Table(this=exp.to_identifier("source")))
+        .join(
+            exp.Table(this=exp.to_identifier("target")),
+            on=join_on,
+            join_type="ANTI",
+        )
+    )
+
+    # Combine with both CTEs
+    return main_select.with_("target", as_=target_select).with_("source", as_=source_query)
 
 
 # ---------------------------------------------------------------------------

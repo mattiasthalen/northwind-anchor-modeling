@@ -22,11 +22,7 @@ _configs = {
 @model(
     "dab.anchor__@{mnemonic}",
     is_sql=True,
-    kind={
-        "name": ModelKindName.INCREMENTAL_BY_UNIQUE_KEY,
-        "unique_key": "@{mnemonic}_ID",
-        "when_matched": "WHEN MATCHED THEN DO NOTHING",
-    },
+    kind={"name": ModelKindName.INCREMENTAL_UNMANAGED},
     blueprints=_blueprint_data,
 )
 def entrypoint(evaluator: MacroEvaluator) -> exp.Expression:
@@ -34,4 +30,5 @@ def entrypoint(evaluator: MacroEvaluator) -> exp.Expression:
     mnemonic = evaluator.blueprint_var("mnemonic")
     config = _configs[mnemonic]
     execution_ts = evaluator.locals["execution_tstz"]
-    return build_anchor_query(mnemonic, config["descriptor"], config["sources"], execution_ts)
+    model_name = f"dab.anchor__{mnemonic}"
+    return build_anchor_query(mnemonic, config["descriptor"], config["sources"], execution_ts, model_name)
