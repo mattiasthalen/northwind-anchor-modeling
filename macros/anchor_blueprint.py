@@ -170,6 +170,103 @@ def build_keyset_expression(
     return result
 
 
+def union_all(selects: list[exp.Select]) -> exp.Expression:
+    """Combine multiple SELECTs with UNION ALL."""
+    if len(selects) == 1:
+        return selects[0]
+
+    result = selects[0]
+    for select in selects[1:]:
+        result = exp.Union(this=result, expression=select, distinct=False)
+    return result
+
+
+def build_incremental_query(
+    source_query: exp.Expression,
+    model_name: str,
+    unique_keys: list[str],
+    loaded_at_col: str,
+    output_columns: list[tuple[str, str]],
+) -> exp.Expression:
+    """
+    Build incremental query with anti-join pattern.
+
+    This is the common pattern for all anchor model entities (anchors, ties,
+    attributes, knots).
+
+    Args:
+        source_query: SELECT or UNION ALL query for source data
+        model_name: Target model name for self-reference
+        unique_keys: Column names that form the unique key
+        loaded_at_col: Name of the loaded_at timestamp column
+        output_columns: List of (column_name, data_type) for output
+
+    Returns:
+        Query with structure:
+            WITH target AS (
+                SELECT unique_keys FROM model QUALIFY ROW_NUMBER() OVER (...) = 1
+            ),
+            source AS (
+                source_query
+            )
+            SELECT columns FROM source ANTI JOIN target ON unique_keys
+    """
+    # Build target CTE: SELECT unique_keys FROM model QUALIFY ROW_NUMBER() = 1
+    key_columns = [exp.Column(this=exp.to_identifier(k)) for k in unique_keys]
+
+    window = exp.Window(
+        this=exp.RowNumber(),
+        partition_by=key_columns,
+        order=exp.Order(
+            expressions=[exp.Ordered(this=exp.Column(this=exp.to_identifier(loaded_at_col)), desc=True)]
+        ),
+    )
+
+    target_select = (
+        exp.select(*key_columns)
+        .from_(model_name)
+        .qualify(exp.EQ(this=window, expression=exp.Literal.number(1)))
+    )
+
+    # Build join conditions
+    join_conditions = [
+        exp.EQ(
+            this=exp.Column(this=exp.to_identifier(k), table=exp.to_identifier("source")),
+            expression=exp.Column(this=exp.to_identifier(k), table=exp.to_identifier("target")),
+        )
+        for k in unique_keys
+    ]
+
+    if len(join_conditions) == 1:
+        join_on = join_conditions[0]
+    else:
+        join_on = join_conditions[0]
+        for cond in join_conditions[1:]:
+            join_on = exp.And(this=join_on, expression=cond)
+
+    # Build output columns with explicit types for self-referencing model inference
+    outer_columns = [
+        exp.Cast(
+            this=exp.Column(this=exp.to_identifier(col_name), table=exp.to_identifier("source")),
+            to=exp.DataType.build(data_type),
+        ).as_(col_name)
+        for col_name, data_type in output_columns
+    ]
+
+    main_select = (
+        exp.select(*outer_columns)
+        .from_(exp.Table(this=exp.to_identifier("source")))
+        .join(
+            exp.Table(this=exp.to_identifier("target")),
+            on=join_on,
+            join_type="ANTI",
+        )
+    )
+
+    # Combine with both CTEs
+    return main_select.with_("target", as_=target_select).with_("source", as_=source_query)
+
+
 def build_anchor_select(
     mnemonic: str,
     descriptor: str,
@@ -221,129 +318,33 @@ def build_anchor_query(
     execution_ts: str,
     model_name: str,
 ) -> exp.Expression:
-    """
-    Build incremental anchor query with anti-join pattern.
-
-    Structure:
-        WITH target AS (
-            SELECT {mnemonic}_id FROM model QUALIFY ROW_NUMBER() OVER (...) = 1
-        ),
-        source AS (
-            SELECT ... FROM source_tables (UNION ALL if multiple)
-        )
-        SELECT source.* FROM source
-        ANTI JOIN target ON {mnemonic}_id
-    """
+    """Build incremental anchor query with anti-join pattern."""
     if not sources:
         raise ValueError(f"No sources defined for anchor {mnemonic}")
 
     # Column names for this anchor
     id_col = f"{mnemonic}_id"
-    system_col = f"{mnemonic}_system"
-    tenant_col = f"{mnemonic}_tenant"
     loaded_at_col = f"{mnemonic}_loaded_at"
 
-    # Build source selects (UNION ALL if multiple)
     selects = [build_anchor_select(mnemonic, descriptor, src, execution_ts) for src in sources]
 
-    if len(selects) == 1:
-        source_query = selects[0]
-    else:
-        source_query = selects[0]
-        for select in selects[1:]:
-            source_query = exp.Union(this=source_query, expression=select, distinct=False)
-
-    # Build target CTE: SELECT id_col FROM model QUALIFY ROW_NUMBER() = 1
-    window = exp.Window(
-        this=exp.RowNumber(),
-        partition_by=[exp.Column(this=exp.to_identifier(id_col))],
-        order=exp.Order(expressions=[exp.Ordered(this=exp.Column(this=exp.to_identifier(loaded_at_col)), desc=True)]),
+    return build_incremental_query(
+        source_query=union_all(selects),
+        model_name=model_name,
+        unique_keys=[id_col],
+        loaded_at_col=loaded_at_col,
+        output_columns=[
+            (id_col, "VARCHAR"),
+            (f"{mnemonic}_system", "VARCHAR"),
+            (f"{mnemonic}_tenant", "VARCHAR"),
+            (loaded_at_col, "TIMESTAMP"),
+        ],
     )
-
-    target_select = (
-        exp.select(exp.Column(this=exp.to_identifier(id_col)))
-        .from_(model_name)
-        .qualify(exp.EQ(this=window, expression=exp.Literal.number(1)))
-    )
-
-    # Build join condition
-    join_on = exp.EQ(
-        this=exp.Column(this=exp.to_identifier(id_col), table=exp.to_identifier("source")),
-        expression=exp.Column(this=exp.to_identifier(id_col), table=exp.to_identifier("target")),
-    )
-
-    # Select explicit columns with types for self-referencing model inference
-    outer_columns = [
-        exp.Cast(
-            this=exp.Column(this=exp.to_identifier(id_col), table=exp.to_identifier("source")),
-            to=exp.DataType.build("VARCHAR"),
-        ).as_(id_col),
-        exp.Cast(
-            this=exp.Column(this=exp.to_identifier(system_col), table=exp.to_identifier("source")),
-            to=exp.DataType.build("VARCHAR"),
-        ).as_(system_col),
-        exp.Cast(
-            this=exp.Column(this=exp.to_identifier(tenant_col), table=exp.to_identifier("source")),
-            to=exp.DataType.build("VARCHAR"),
-        ).as_(tenant_col),
-        exp.Cast(
-            this=exp.Column(this=exp.to_identifier(loaded_at_col), table=exp.to_identifier("source")),
-            to=exp.DataType.build("TIMESTAMP"),
-        ).as_(loaded_at_col),
-    ]
-
-    main_select = (
-        exp.select(*outer_columns)
-        .from_(exp.Table(this=exp.to_identifier("source")))
-        .join(
-            exp.Table(this=exp.to_identifier("target")),
-            on=join_on,
-            join_type="ANTI",
-        )
-    )
-
-    # Combine with both CTEs
-    return main_select.with_("target", as_=target_select).with_("source", as_=source_query)
 
 
 # ---------------------------------------------------------------------------
 # Tie SQL Generation
 # ---------------------------------------------------------------------------
-
-def build_tie_keyset_expression(
-    descriptor: str,
-    system: str,
-    key: str | list[str],
-    tenant: str | None = None,
-) -> exp.Expression:
-    """
-    Build keyset ID expression for a tie role.
-    """
-    if tenant:
-        prefix = f"{descriptor}@{system}~{tenant}|"
-    else:
-        prefix = f"{descriptor}@{system}|"
-
-    keys = [key] if isinstance(key, str) else key
-
-    parts: list[exp.Expression] = [exp.Literal.string(prefix)]
-
-    for i, k in enumerate(keys):
-        if i > 0:
-            parts.append(exp.Literal.string("|"))
-        # Keys are already snake_case from model.yaml
-        parts.append(
-            exp.Cast(
-                this=exp.Column(this=exp.to_identifier(k)),
-                to=exp.DataType.build("VARCHAR"),
-            )
-        )
-
-    result = parts[0]
-    for part in parts[1:]:
-        result = exp.Concat(expressions=[result, part])
-
-    return result
 
 
 def build_tie_select(
@@ -384,7 +385,7 @@ def build_tie_select(
                 f"Tie {tie_name}: no key mapping for role {role_key} or {anchor_type}"
             )
 
-        keyset_expr = build_tie_keyset_expression(descriptor, system, key, tenant)
+        keyset_expr = build_keyset_expression(descriptor, system, key, tenant)
         columns.append(keyset_expr.as_(col_name))
 
     # Add loaded_at
@@ -397,32 +398,8 @@ def build_tie_select(
     return exp.select(*columns).from_(table)
 
 
-def build_tie_query(
-    tie_name: str,
-    roles: list[dict[str, Any]],
-    sources: list[dict[str, Any]],
-    anchor_descriptors: dict[str, str],
-    execution_ts: str,
-    model_name: str,
-) -> exp.Expression:
-    """
-    Build incremental tie query with anti-join pattern.
-
-    Structure:
-        WITH target AS (
-            SELECT key_cols FROM model QUALIFY ROW_NUMBER() OVER (...) = 1
-        ),
-        source AS (
-            SELECT ... FROM source_tables
-        )
-        SELECT source.* FROM source
-        LEFT JOIN target ON key_cols
-        WHERE target.key IS NULL
-    """
-    if not sources:
-        raise ValueError(f"No sources defined for tie {tie_name}")
-
-    # Build unique key column names from roles
+def build_tie_unique_keys(roles: list[dict[str, Any]]) -> list[str]:
+    """Build unique key column names from tie roles."""
     anchor_counts: dict[str, int] = {}
     for r in roles:
         anchor_counts[r["type"]] = anchor_counts.get(r["type"], 0) + 1
@@ -434,75 +411,31 @@ def build_tie_query(
             unique_keys.append(f"{anchor_type}_{r['role']}_id")
         else:
             unique_keys.append(f"{anchor_type}_id")
+    return unique_keys
 
-    # Build source selects (UNION ALL if multiple)
+
+def build_tie_query(
+    tie_name: str,
+    roles: list[dict[str, Any]],
+    sources: list[dict[str, Any]],
+    anchor_descriptors: dict[str, str],
+    execution_ts: str,
+    model_name: str,
+) -> exp.Expression:
+    """Build incremental tie query with anti-join pattern."""
+    if not sources:
+        raise ValueError(f"No sources defined for tie {tie_name}")
+
+    unique_keys = build_tie_unique_keys(roles)
     selects = [build_tie_select(tie_name, roles, src, anchor_descriptors, execution_ts) for src in sources]
 
-    if len(selects) == 1:
-        source_query = selects[0]
-    else:
-        source_query = selects[0]
-        for select in selects[1:]:
-            source_query = exp.Union(this=source_query, expression=select, distinct=False)
-
-    # Build target CTE: SELECT key_cols FROM model QUALIFY ROW_NUMBER() = 1
-    key_columns = [exp.Column(this=exp.to_identifier(k)) for k in unique_keys]
-
-    window = exp.Window(
-        this=exp.RowNumber(),
-        partition_by=key_columns,
-        order=exp.Order(expressions=[exp.Ordered(this=exp.Column(this=exp.to_identifier("loaded_at")), desc=True)]),
+    return build_incremental_query(
+        source_query=union_all(selects),
+        model_name=model_name,
+        unique_keys=unique_keys,
+        loaded_at_col="loaded_at",
+        output_columns=[(k, "VARCHAR") for k in unique_keys] + [("loaded_at", "TIMESTAMP")],
     )
-
-    target_select = (
-        exp.select(*key_columns)
-        .from_(model_name)
-        .qualify(exp.EQ(this=window, expression=exp.Literal.number(1)))
-    )
-
-    # Build main select with anti-join using two CTEs
-    join_conditions = [
-        exp.EQ(
-            this=exp.Column(this=exp.to_identifier(k), table=exp.to_identifier("source")),
-            expression=exp.Column(this=exp.to_identifier(k), table=exp.to_identifier("target")),
-        )
-        for k in unique_keys
-    ]
-
-    if len(join_conditions) == 1:
-        join_on = join_conditions[0]
-    else:
-        join_on = join_conditions[0]
-        for cond in join_conditions[1:]:
-            join_on = exp.And(this=join_on, expression=cond)
-
-    # Select explicit columns with types for self-referencing model inference
-    outer_columns = [
-        exp.Cast(
-            this=exp.Column(this=exp.to_identifier(k), table=exp.to_identifier("source")),
-            to=exp.DataType.build("VARCHAR"),
-        ).as_(k)
-        for k in unique_keys
-    ]
-    outer_columns.append(
-        exp.Cast(
-            this=exp.Column(this=exp.to_identifier("loaded_at"), table=exp.to_identifier("source")),
-            to=exp.DataType.build("TIMESTAMP"),
-        ).as_("loaded_at")
-    )
-
-    main_select = (
-        exp.select(*outer_columns)
-        .from_(exp.Table(this=exp.to_identifier("source")))
-        .join(
-            exp.Table(this=exp.to_identifier("target")),
-            on=join_on,
-            join_type="ANTI",
-        )
-    )
-
-    # Combine with both CTEs
-    return main_select.with_("target", as_=target_select).with_("source", as_=source_query)
 
 
 # ---------------------------------------------------------------------------
@@ -551,21 +484,7 @@ def get_tie_blueprints() -> list[dict[str, Any]]:
     for tie_name, config in model["ties"].items():
         roles = config["roles"]
         sources = config.get("sources", [])
-
-        # Build unique key columns based on roles
-        # For self-referencing ties, include role in column name
-        unique_keys = []
-        anchor_counts: dict[str, int] = {}
-        for r in roles:
-            anchor_counts[r["type"]] = anchor_counts.get(r["type"], 0) + 1
-
-        for r in roles:
-            anchor_type = r["type"]
-            if anchor_counts[anchor_type] > 1:
-                # Self-referencing: use {type}_{role}_id
-                unique_keys.append(f"{anchor_type}_{r['role']}_id")
-            else:
-                unique_keys.append(f"{anchor_type}_id")
+        unique_keys = build_tie_unique_keys(roles)
 
         # Build columns dict for self-referencing model
         columns = {k: "VARCHAR" for k in unique_keys}
