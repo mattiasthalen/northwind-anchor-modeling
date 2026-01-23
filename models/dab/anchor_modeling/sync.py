@@ -26,11 +26,10 @@ import yaml
 
 
 # ---------------------------------------------------------------------------
-# Paths (relative to script location)
+# Paths (same directory as this script)
 # ---------------------------------------------------------------------------
-SCRIPT_DIR = Path(__file__).parent
-MODEL_XML = SCRIPT_DIR / "model.xml"
-MODEL_YAML = SCRIPT_DIR / "model.yaml"
+MODEL_XML = Path(__file__).parent / "model.xml"
+MODEL_YAML = Path(__file__).parent / "model.yaml"
 
 
 # ---------------------------------------------------------------------------
