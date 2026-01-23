@@ -109,27 +109,49 @@ class TestValidateAnchorSources:
         model_data = {
             "anchors": {
                 "PR": {
+                    "descriptor": "Product",
                     "sources": [{"system": "nw", "table": "products", "key": "product_id"}]
                 }
             }
         }
-        blueprint._validate_anchor_sources(model_data)
+        stubs = blueprint._validate_anchor_sources(model_data)
+        assert stubs == []
 
-    def test_missing_sources(self):
-        model_data = {"anchors": {"PR": {"sources": []}}}
-        with pytest.raises(blueprint.ModelValidationError, match="no sources defined"):
-            blueprint._validate_anchor_sources(model_data)
+    def test_missing_sources_returns_stub(self):
+        model_data = {
+            "anchors": {
+                "PR": {"descriptor": "Product", "sources": []}
+            }
+        }
+        stubs = blueprint._validate_anchor_sources(model_data)
+        assert len(stubs) == 1
+        assert "PR:" in stubs[0]
+        assert "Product" in stubs[0]
+        assert "system: ???" in stubs[0]
 
-    def test_missing_required_field(self):
+    def test_missing_required_field_returns_stub(self):
         model_data = {
             "anchors": {
                 "PR": {
+                    "descriptor": "Product",
                     "sources": [{"system": "nw", "table": "products"}]  # missing key
                 }
             }
         }
-        with pytest.raises(blueprint.ModelValidationError, match="missing required fields"):
-            blueprint._validate_anchor_sources(model_data)
+        stubs = blueprint._validate_anchor_sources(model_data)
+        assert len(stubs) == 1
+        assert "PR:" in stubs[0]
+        assert "['key']" in stubs[0]
+
+    def test_multiple_missing_anchors_collected(self):
+        model_data = {
+            "anchors": {
+                "PR": {"descriptor": "Product", "sources": []},
+                "OR": {"descriptor": "Order", "sources": []},
+            }
+        }
+        stubs = blueprint._validate_anchor_sources(model_data)
+        assert len(stubs) == 2
 
 
 class TestValidateTieSources:
@@ -137,27 +159,169 @@ class TestValidateTieSources:
         model_data = {
             "ties": {
                 "OR_order_PR_product": {
+                    "roles": [{"type": "OR", "role": "order"}, {"type": "PR", "role": "product"}],
                     "sources": [{"system": "nw", "table": "order_details", "keys": {"OR": "order_id", "PR": "product_id"}}]
                 }
             }
         }
-        blueprint._validate_tie_sources(model_data)
+        stubs = blueprint._validate_tie_sources(model_data)
+        assert stubs == []
 
-    def test_missing_sources(self):
-        model_data = {"ties": {"OR_order_PR_product": {"sources": []}}}
-        with pytest.raises(blueprint.ModelValidationError, match="no sources defined"):
-            blueprint._validate_tie_sources(model_data)
-
-    def test_missing_keys_field(self):
+    def test_missing_sources_returns_stub(self):
         model_data = {
             "ties": {
                 "OR_order_PR_product": {
+                    "roles": [{"type": "OR", "role": "order"}, {"type": "PR", "role": "product"}],
+                    "sources": []
+                }
+            }
+        }
+        stubs = blueprint._validate_tie_sources(model_data)
+        assert len(stubs) == 1
+        assert "OR_order_PR_product:" in stubs[0]
+        assert "OR: ???" in stubs[0]
+        assert "PR: ???" in stubs[0]
+
+    def test_missing_keys_field_returns_stub(self):
+        model_data = {
+            "ties": {
+                "OR_order_PR_product": {
+                    "roles": [{"type": "OR", "role": "order"}, {"type": "PR", "role": "product"}],
                     "sources": [{"system": "nw", "table": "order_details"}]  # missing keys
                 }
             }
         }
-        with pytest.raises(blueprint.ModelValidationError, match="missing 'keys'"):
-            blueprint._validate_tie_sources(model_data)
+        stubs = blueprint._validate_tie_sources(model_data)
+        assert len(stubs) == 1
+        assert "missing fields" in stubs[0]
+        assert "keys" in stubs[0]
+
+    def test_self_referencing_tie_stub_has_role_specific_keys(self):
+        """Test that ties with same anchor type use role-specific keys in stub."""
+        model_data = {
+            "ties": {
+                "PE_manager_PE_employee": {
+                    "roles": [
+                        {"type": "PE", "role": "manager"},
+                        {"type": "PE", "role": "employee"},
+                    ],
+                    "sources": []
+                }
+            }
+        }
+        stubs = blueprint._validate_tie_sources(model_data)
+        assert len(stubs) == 1
+        assert "PE_manager: ???" in stubs[0]
+        assert "PE_employee: ???" in stubs[0]
+
+    def test_multiple_missing_ties_collected(self):
+        model_data = {
+            "ties": {
+                "OR_order_PR_product": {
+                    "roles": [{"type": "OR", "role": "order"}, {"type": "PR", "role": "product"}],
+                    "sources": []
+                },
+                "PR_supplier_SU_by": {
+                    "roles": [{"type": "PR", "role": "supplier"}, {"type": "SU", "role": "by"}],
+                    "sources": []
+                }
+            }
+        }
+        stubs = blueprint._validate_tie_sources(model_data)
+        assert len(stubs) == 2
+
+
+class TestValidateModel:
+    def test_valid_model_passes(self):
+        model_data = {
+            "anchors": {
+                "PR": {
+                    "descriptor": "Product",
+                    "sources": [{"system": "nw", "table": "products", "key": "product_id"}]
+                }
+            },
+            "ties": {
+                "OR_order_PR_product": {
+                    "roles": [{"type": "OR", "role": "order"}, {"type": "PR", "role": "product"}],
+                    "sources": [{"system": "nw", "table": "order_details", "keys": {"OR": "order_id", "PR": "product_id"}}]
+                }
+            }
+        }
+        blueprint._validate_model(model_data)  # Should not raise
+
+    def test_multiple_errors_collected_in_single_exception(self):
+        """Test that all validation errors are collected and raised together."""
+        model_data = {
+            "anchors": {
+                "PR": {"descriptor": "Product", "sources": []},
+                "OR": {"descriptor": "Order", "sources": []},
+            },
+            "ties": {
+                "OR_order_PR_product": {
+                    "roles": [{"type": "OR", "role": "order"}, {"type": "PR", "role": "product"}],
+                    "sources": []
+                }
+            }
+        }
+        with pytest.raises(blueprint.ModelValidationError) as exc_info:
+            blueprint._validate_model(model_data)
+
+        error_msg = str(exc_info.value)
+        # Check header
+        assert "Missing or incomplete source mappings" in error_msg
+        assert "Add these entries to sources.yaml" in error_msg
+
+        # Check that both anchors are included
+        assert "PR:" in error_msg
+        assert "OR:" in error_msg
+
+        # Check that tie is included
+        assert "OR_order_PR_product:" in error_msg
+
+        # Check YAML structure
+        assert "anchors:" in error_msg
+        assert "ties:" in error_msg
+        assert "system: ???" in error_msg
+        assert "keys:" in error_msg
+
+    def test_error_message_is_valid_yaml_structure(self):
+        """Test that the error message contains properly formatted YAML stubs."""
+        model_data = {
+            "anchors": {
+                "PR": {"descriptor": "Product", "sources": []}
+            },
+            "ties": {}
+        }
+        with pytest.raises(blueprint.ModelValidationError) as exc_info:
+            blueprint._validate_model(model_data)
+
+        error_msg = str(exc_info.value)
+        # Should have proper indentation
+        assert "  PR:" in error_msg
+        assert "    - system: ???" in error_msg
+        assert "      table: ???" in error_msg
+        assert "      key: ???" in error_msg
+
+    def test_self_referencing_tie_error_shows_role_specific_keys(self):
+        """Test that error stubs for self-referencing ties show role-specific keys."""
+        model_data = {
+            "anchors": {},
+            "ties": {
+                "PE_manager_PE_employee": {
+                    "roles": [
+                        {"type": "PE", "role": "manager"},
+                        {"type": "PE", "role": "employee"},
+                    ],
+                    "sources": []
+                }
+            }
+        }
+        with pytest.raises(blueprint.ModelValidationError) as exc_info:
+            blueprint._validate_model(model_data)
+
+        error_msg = str(exc_info.value)
+        assert "PE_manager: ???" in error_msg
+        assert "PE_employee: ???" in error_msg
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +420,7 @@ class TestBuildIncrementalQuery:
         assert "source" in sql
         assert "ANTI" in sql or "LEFT" in sql  # anti join syntax varies
         assert "ROW_NUMBER()" in sql
+        assert "dab.test_model" in sql  # Uses explicit table reference
 
     def test_multiple_unique_keys(self):
         source_query = exp.select("a", "b", "val").from_("t")
@@ -561,9 +726,9 @@ class TestGetBlueprints:
             assert "model_name" in bp
             assert "mnemonic" in bp
             assert "descriptor" in bp
-            assert bp["model_name"].startswith("dab.anchor__")
+            assert bp["model_name"].startswith("anchor__")
 
         for bp in tie_blueprints:
             assert "model_name" in bp
             assert "roles" in bp
-            assert bp["model_name"].startswith("dab.tie__")
+            assert bp["model_name"].startswith("tie__")

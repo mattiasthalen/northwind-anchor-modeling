@@ -1,0 +1,126 @@
+# Source system mappings for anchor model entities
+#
+# Edit this file to configure how anchors and ties map to source tables.
+# The blueprint reads model.xml for structure and this file for source mappings.
+
+anchors:
+  OH:  # Orders
+    - system: northwind
+      table: das.orders
+      key: order_id
+
+  OD:  # OrderDetails
+    - system: northwind
+      table: das.order_details
+      key: [order_id, product_id]
+
+  CU:  # Customers
+    - system: northwind
+      table: das.customers
+      key: customer_id
+
+  EM:  # Employees
+    - system: northwind
+      table: das.employees
+      key: employee_id
+
+  SH:  # Shippers
+    - system: northwind
+      table: das.shippers
+      key: shipper_id
+
+  PR:  # Products
+    - system: northwind
+      table: das.products
+      key: product_id
+
+  SU:  # Suppliers
+    - system: northwind
+      table: das.suppliers
+      key: supplier_id
+
+  CA:  # Categories
+    - system: northwind
+      table: das.categories
+      key: category_id
+
+  RE:  # Regions
+    - system: northwind
+      table: das.regions
+      key: region_id
+
+  TE:  # Territories
+    - system: northwind
+      table: das.territories
+      key: territory_id
+
+ties:
+  OD_isContained_OH_in:
+    - system: northwind
+      table: das.order_details
+      keys:
+        OH: order_id
+        OD: [order_id, product_id]
+
+  OH_isPlaced_CU_by:
+    - system: northwind
+      table: das.orders
+      keys:
+        OH: order_id
+        CU: customer_id
+
+  OH_isHandled_EM_by:
+    - system: northwind
+      table: das.orders
+      keys:
+        OH: order_id
+        EM: employee_id
+
+  OH_isShipped_SH_via:
+    - system: northwind
+      table: das.orders
+      keys:
+        OH: order_id
+        SH: ship_via
+
+  OD_refers_PR_to:
+    - system: northwind
+      table: das.order_details
+      keys:
+        OD: [order_id, product_id]
+        PR: product_id
+
+  PR_isSupplied_SU_by:
+    - system: northwind
+      table: das.products
+      keys:
+        PR: product_id
+        SU: supplier_id
+
+  PR_isCategorized_CA_as:
+    - system: northwind
+      table: das.products
+      keys:
+        PR: product_id
+        CA: category_id
+
+  EM_reports_EM_to:
+    - system: northwind
+      table: das.employees
+      keys:
+        EM_reports: employee_id
+        EM_to: reports_to
+
+  OH_ships_RE_to:
+    - system: northwind
+      table: das.orders
+      keys:
+        OH: order_id
+        RE: ship_region
+
+  TE_belongs_RE_to:
+    - system: northwind
+      table: das.territories
+      keys:
+        TE: territory_id
+        RE: region_id

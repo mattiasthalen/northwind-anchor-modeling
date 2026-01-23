@@ -1,204 +1,151 @@
-<schema format="0.99.16" date="2026-01-22" time="12:05:49">
-  <metadata changingRange="timestamp" encapsulation="public" identity="integer" metadataPrefix="Metadata" metadataType="integer" metadataUsage="true" changingSuffix="ChangedAt" identitySuffix="ID" positIdentity="integer" positGenerator="true" positingRange="timestamp" positingSuffix="PositedAt" positorRange="smallint" positorSuffix="Positor" reliabilityRange="decimal(5,2)" reliabilitySuffix="Reliability" defaultReliability="1" deleteReliability="0" assertionSuffix="Assertion" partitioning="true" entityIntegrity="true" restatability="true" idempotency="false" assertiveness="true" naming="improved" positSuffix="Posit" annexSuffix="Annex" chronon="timestamp" now="current_timestamp" dummySuffix="Dummy" versionSuffix="Version" statementTypeSuffix="StatementType" checksumSuffix="Checksum" businessViews="true" decisiveness="true" equivalence="true" equivalentSuffix="EQ" equivalentRange="smallint" databaseTarget="PostgreSQL" temporalization="uni" deletability="false" deletablePrefix="Deletable" deletionSuffix="Deleted" privacy="Ignore" checksum="false" triggers="true" knotAliases="true" />
-  <anchor mnemonic="OH" descriptor="Orders" identity="integer">
-    <metadata capsule="public" generator="true" />
-    <layout x="686.33" y="415.21" fixed="false" />
-    <description>
-      <source system="northwind" table="das.orders">
-        <key>order_id</key>
-      </source>
-    </description>
-  </anchor>
-  <anchor mnemonic="OD" descriptor="OrderDetails" identity="integer">
-    <metadata capsule="public" generator="true" />
-    <layout x="576.89" y="224.09" fixed="false" />
-    <description>
-      <source system="northwind" table="das.order_details">
-        <key>
-          <col>order_id</col>
-          <col>product_id</col>
-        </key>
-      </source>
-    </description>
-  </anchor>
-  <anchor mnemonic="CU" descriptor="Customers" identity="integer">
-    <metadata capsule="public" generator="true" />
-    <layout x="618.07" y="544.43" fixed="false" />
-    <description>
-      <source system="northwind" table="das.customers">
-        <key>customer_id</key>
-      </source>
-    </description>
-  </anchor>
-  <anchor mnemonic="EM" descriptor="Employees" identity="integer">
-    <metadata capsule="public" generator="true" />
-    <layout x="923.01" y="461.11" fixed="false" />
-    <description>
-      <source system="northwind" table="das.employees">
-        <key>employee_id</key>
-      </source>
-    </description>
-  </anchor>
-  <anchor mnemonic="SH" descriptor="Shippers" identity="integer">
-    <metadata capsule="public" generator="true" />
-    <layout x="495.36" y="435.73" fixed="false" />
-    <description>
-      <source system="northwind" table="das.shippers">
-        <key>shipper_id</key>
-      </source>
-    </description>
-  </anchor>
-  <anchor mnemonic="PR" descriptor="Products" identity="integer">
-    <metadata capsule="public" generator="true" />
-    <layout x="432.99" y="145.57" fixed="false" />
-    <description>
-      <source system="northwind" table="das.products">
-        <key>product_id</key>
-      </source>
-    </description>
-  </anchor>
-  <anchor mnemonic="SU" descriptor="Suppliers" identity="integer">
-    <metadata capsule="public" generator="true" />
-    <layout x="433.61" y="-1.01" fixed="false" />
-    <description>
-      <source system="northwind" table="das.suppliers">
-        <key>supplier_id</key>
-      </source>
-    </description>
-  </anchor>
-  <anchor mnemonic="CA" descriptor="Categories" identity="integer">
-    <metadata capsule="public" generator="true" />
-    <layout x="257.37" y="135.85" fixed="false" />
-    <description>
-      <source system="northwind" table="das.categories">
-        <key>category_id</key>
-      </source>
-    </description>
-  </anchor>
-  <tie>
-    <anchorRole role="in" type="OH" identifier="false">
-      <description>
-        <source system="northwind" table="das.order_details">
-          <keys>
-            <OH>order_id</OH>
-            <OD>
-              <col>order_id</col>
-              <col>product_id</col>
-            </OD>
-          </keys>
-        </source>
-      </description>
-    </anchorRole>
-    <anchorRole role="isContained" type="OD" identifier="true" />
-    <metadata capsule="public" deletable="false" idempotent="false" />
-    <layout x="626.91" y="301.96" fixed="false" />
-  </tie>
-  <tie>
-    <anchorRole role="isPlaced" type="OH" identifier="true">
-      <description>
-        <source system="northwind" table="das.orders">
-          <keys>
-            <OH>order_id</OH>
-            <CU>customer_id</CU>
-          </keys>
-        </source>
-      </description>
-    </anchorRole>
-    <anchorRole role="by" type="CU" identifier="false" />
-    <metadata capsule="public" deletable="false" idempotent="false" />
-    <layout x="655.64" y="495.41" fixed="false" />
-  </tie>
-  <tie>
-    <anchorRole role="isHandled" type="OH" identifier="true">
-      <description>
-        <source system="northwind" table="das.orders">
-          <keys>
-            <OH>order_id</OH>
-            <EM>employee_id</EM>
-          </keys>
-        </source>
-      </description>
-    </anchorRole>
-    <anchorRole role="by" type="EM" identifier="false" />
-    <metadata capsule="public" deletable="false" idempotent="false" />
-    <layout x="795.41" y="455.37" fixed="false" />
-  </tie>
-  <tie>
-    <anchorRole role="isShipped" type="OH" identifier="true">
-      <description>
-        <source system="northwind" table="das.orders">
-          <keys>
-            <OH>order_id</OH>
-            <SH>ship_via</SH>
-          </keys>
-        </source>
-      </description>
-    </anchorRole>
-    <anchorRole role="via" type="SH" identifier="false" />
-    <metadata capsule="public" deletable="false" idempotent="false" />
-    <layout x="573.36" y="422.59" fixed="false" />
-  </tie>
-  <tie>
-    <anchorRole role="refers" type="OD" identifier="true">
-      <description>
-        <source system="northwind" table="das.order_details">
-          <keys>
-            <OD>
-              <col>order_id</col>
-              <col>product_id</col>
-            </OD>
-            <PR>product_id</PR>
-          </keys>
-        </source>
-      </description>
-    </anchorRole>
-    <anchorRole role="to" type="PR" identifier="false" />
-    <metadata capsule="public" deletable="false" idempotent="false" />
-    <layout x="489.08" y="200.86" fixed="false" />
-  </tie>
-  <tie>
-    <anchorRole role="isSupplied" type="PR" identifier="true">
-      <description>
-        <source system="northwind" table="das.products">
-          <keys>
-            <PR>product_id</PR>
-            <SU>supplier_id</SU>
-          </keys>
-        </source>
-      </description>
-    </anchorRole>
-    <anchorRole role="by" type="SU" identifier="false" />
-    <metadata capsule="public" deletable="false" idempotent="false" />
-    <layout x="430.11" y="41.32" fixed="false" />
-  </tie>
-  <tie>
-    <anchorRole role="isCategorized" type="PR" identifier="true">
-      <description>
-        <source system="northwind" table="das.products">
-          <keys>
-            <PR>product_id</PR>
-            <CA>category_id</CA>
-          </keys>
-        </source>
-      </description>
-    </anchorRole>
-    <anchorRole role="as" type="CA" identifier="false" />
-    <metadata capsule="public" deletable="false" idempotent="false" />
-    <layout x="334.38" y="140.68" fixed="false" />
-  </tie>
-  <tie>
-    <anchorRole role="to" type="EM" identifier="false">
-      <description>
-        <source system="northwind" table="das.employees">
-          <keys>
-            <EM_reports>employee_id</EM_reports>
-            <EM_to>reports_to</EM_to>
-          </keys>
-        </source>
-      </description>
-    </anchorRole>
-    <anchorRole role="reports" type="EM" identifier="true" />
-    <metadata capsule="public" deletable="false" idempotent="false" />
-    <layout x="1021.00" y="453.00" fixed="true" />
-  </tie>
+<schema format="0.99.16" date="2026-01-23" time="14:44:59">
+<metadata changingRange="timestamp" encapsulation="public" identity="integer" metadataPrefix="Metadata" metadataType="integer" metadataUsage="true" changingSuffix="ChangedAt" identitySuffix="ID" positIdentity="integer" positGenerator="true" positingRange="timestamp" positingSuffix="PositedAt" positorRange="smallint" positorSuffix="Positor" reliabilityRange="decimal(5,2)" reliabilitySuffix="Reliability" defaultReliability="1" deleteReliability="0" assertionSuffix="Assertion" partitioning="true" entityIntegrity="true" restatability="true" idempotency="false" assertiveness="true" naming="improved" positSuffix="Posit" annexSuffix="Annex" chronon="timestamp" now="current_timestamp" dummySuffix="Dummy" versionSuffix="Version" statementTypeSuffix="StatementType" checksumSuffix="Checksum" businessViews="true" decisiveness="true" equivalence="true" equivalentSuffix="EQ" equivalentRange="smallint" databaseTarget="PostgreSQL" temporalization="uni" deletability="false" deletablePrefix="Deletable" deletionSuffix="Deleted" privacy="Ignore" checksum="false" triggers="true" knotAliases="false"/>
+<anchor mnemonic="OH" descriptor="Orders" identity="integer">
+<metadata capsule="public" generator="true"/>
+<attribute mnemonic="SHA" descriptor="ShipAddress" timeRange="timestamp" dataRange="text">
+<metadata privacy="Ignore" capsule="public" equivalent="true" restatable="true" idempotent="false" deletable="false"/>
+<layout x="454.32" y="323.53" fixed="false"/>
+</attribute>
+<attribute mnemonic="SHC" descriptor="ShipCity" timeRange="timestamp" dataRange="text">
+<metadata privacy="Ignore" capsule="public" equivalent="true" restatable="true" idempotent="false" deletable="false"/>
+<layout x="552.21" y="292.34" fixed="false"/>
+</attribute>
+<attribute mnemonic="SHN" descriptor="ShipName" timeRange="timestamp" dataRange="text">
+<metadata privacy="Ignore" capsule="public" equivalent="false" restatable="true" idempotent="false" deletable="false"/>
+<layout x="633.90" y="395.98" fixed="false"/>
+</attribute>
+<attribute mnemonic="SHR" descriptor="ShipRegion" timeRange="timestamp" dataRange="text">
+<metadata privacy="Ignore" capsule="public" equivalent="true" restatable="true" idempotent="false" deletable="false"/>
+<layout x="489.85" y="451.47" fixed="false"/>
+</attribute>
+<attribute mnemonic="SPC" descriptor="ShipPostalCode" timeRange="timestamp" dataRange="text">
+<metadata privacy="Ignore" capsule="public" equivalent="true" restatable="true" idempotent="false" deletable="false"/>
+<layout x="486.82" y="283.74" fixed="false"/>
+</attribute>
+<attribute mnemonic="ODA" descriptor="OrderDate" timeRange="timestamp" dataRange="date">
+<metadata privacy="Ignore" capsule="public" equivalent="true" restatable="true" idempotent="false" deletable="false"/>
+<layout x="509.24" y="266.16" fixed="false"/>
+</attribute>
+<attribute mnemonic="SCY" descriptor="ShipCountry" knotRange="COU">
+<metadata privacy="Ignore" capsule="public" equivalent="false" idempotent="false" deletable="false"/>
+<layout x="652.27" y="449.72" fixed="false"/>
+</attribute>
+<attribute mnemonic="SHD" descriptor="ShippedDate" timeRange="timestamp" dataRange="date">
+<metadata privacy="Ignore" capsule="public" equivalent="true" restatable="true" idempotent="false" deletable="false"/>
+<layout x="645.11" y="333.80" fixed="false"/>
+</attribute>
+<attribute mnemonic="RED" descriptor="RequiredDate" timeRange="timestamp" dataRange="date">
+<metadata privacy="Ignore" capsule="public" equivalent="true" restatable="true" idempotent="false" deletable="false"/>
+<layout x="532.50" y="451.50" fixed="false"/>
+</attribute>
+<attribute mnemonic="FRE" descriptor="Freight" timeRange="timestamp" dataRange="float">
+<metadata privacy="Ignore" capsule="public" equivalent="true" restatable="true" idempotent="false" deletable="false"/>
+<layout x="613.32" y="407.58" fixed="false"/>
+</attribute>
+<attribute mnemonic="SHV" descriptor="ShipVia" timeRange="timestamp" dataRange="int">
+<metadata privacy="Ignore" capsule="public" equivalent="true" restatable="true" idempotent="false" deletable="false"/>
+<layout x="471.80" y="314.57" fixed="false"/>
+</attribute>
+<layout x="525.25" y="388.40" fixed="false"/>
+</anchor>
+<anchor mnemonic="OD" descriptor="OrderDetails" identity="integer">
+<metadata capsule="public" generator="true"/>
+<layout x="855.73" y="243.17" fixed="false"/>
+</anchor>
+<anchor mnemonic="CU" descriptor="Customers" identity="integer">
+<metadata capsule="public" generator="true"/>
+<layout x="314.88" y="320.93" fixed="false"/>
+</anchor>
+<anchor mnemonic="EM" descriptor="Employees" identity="integer">
+<metadata capsule="public" generator="true"/>
+<layout x="384.74" y="589.24" fixed="false"/>
+</anchor>
+<anchor mnemonic="SH" descriptor="Shippers" identity="integer">
+<metadata capsule="public" generator="true"/>
+<layout x="356.53" y="438.72" fixed="false"/>
+</anchor>
+<anchor mnemonic="PR" descriptor="Products" identity="integer">
+<metadata capsule="public" generator="true"/>
+<layout x="995.94" y="107.72" fixed="false"/>
+</anchor>
+<anchor mnemonic="SU" descriptor="Suppliers" identity="integer">
+<metadata capsule="public" generator="true"/>
+<layout x="1150.22" y="43.88" fixed="false"/>
+</anchor>
+<anchor mnemonic="CA" descriptor="Categories" identity="integer">
+<metadata capsule="public" generator="true"/>
+<layout x="988.87" y="-60.77" fixed="false"/>
+</anchor>
+<tie timeRange="timestamp">
+<anchorRole role="in" type="OH" identifier="false"/>
+<anchorRole role="isContained" type="OD" identifier="true"/>
+<metadata capsule="public" restatable="true" deletable="false" idempotent="false"/>
+<layout x="720.05" y="288.85" fixed="false"/>
+</tie>
+<tie timeRange="timestamp">
+<anchorRole role="isPlaced" type="OH" identifier="true"/>
+<anchorRole role="by" type="CU" identifier="false"/>
+<metadata capsule="public" restatable="true" deletable="false" idempotent="false"/>
+<layout x="400.29" y="345.73" fixed="false"/>
+</tie>
+<tie timeRange="timestamp">
+<anchorRole role="isHandled" type="OH" identifier="true"/>
+<anchorRole role="by" type="EM" identifier="false"/>
+<metadata capsule="public" restatable="true" deletable="false" idempotent="false"/>
+<layout x="453.86" y="495.09" fixed="false"/>
+</tie>
+<tie timeRange="timestamp">
+<anchorRole role="isShipped" type="OH" identifier="true"/>
+<anchorRole role="via" type="SH" identifier="false"/>
+<metadata capsule="public" restatable="true" deletable="false" idempotent="false"/>
+<layout x="428.61" y="411.31" fixed="false"/>
+</tie>
+<tie>
+<anchorRole role="refers" type="OD" identifier="true"/>
+<anchorRole role="to" type="PR" identifier="false"/>
+<metadata capsule="public" deletable="false" idempotent="false"/>
+<layout x="940.16" y="182.50" fixed="false"/>
+</tie>
+<tie>
+<anchorRole role="isSupplied" type="PR" identifier="true"/>
+<anchorRole role="by" type="SU" identifier="false"/>
+<metadata capsule="public" deletable="false" idempotent="false"/>
+<layout x="1085.38" y="73.65" fixed="false"/>
+</tie>
+<tie>
+<anchorRole role="isCategorized" type="PR" identifier="true"/>
+<anchorRole role="as" type="CA" identifier="false"/>
+<metadata capsule="public" deletable="false" idempotent="false"/>
+<layout x="988.97" y="5.50" fixed="false"/>
+</tie>
+<tie timeRange="timestamp">
+<anchorRole role="to" type="EM" identifier="false"/>
+<anchorRole role="reports" type="EM" identifier="true"/>
+<metadata capsule="public" restatable="true" deletable="false" idempotent="false"/>
+<layout x="340.81" y="649.52" fixed="false"/>
+</tie>
+<knot mnemonic="COU" descriptor="Country" identity="integer" dataRange="text">
+<metadata capsule="public" generator="false" equivalent="true"/>
+<layout x="718.72" y="491.13" fixed="false"/>
+</knot>
+<tie>
+<anchorRole role="ships" type="OH" identifier="true"/>
+<anchorRole role="to" type="RE" identifier="false"/>
+<metadata capsule="public" deletable="false" idempotent="false"/>
+<layout x="561.85" y="552.44" fixed="false"/>
+</tie>
+<anchor mnemonic="RE" descriptor="Regions" identity="integer">
+<metadata capsule="public" generator="true"/>
+<layout x="596.65" y="694.32" fixed="false"/>
+</anchor>
+<tie>
+<anchorRole role="to" type="RE" identifier="false"/>
+<anchorRole role="belongs" type="TE" identifier="true"/>
+<metadata capsule="public" deletable="false" idempotent="false"/>
+<layout x="625.95" y="810.81" fixed="false"/>
+</tie>
+<anchor mnemonic="TE" descriptor="Territories" identity="integer">
+<metadata capsule="public" generator="true"/>
+<layout x="645.84" y="887.31" fixed="false"/>
+</anchor>
 </schema>

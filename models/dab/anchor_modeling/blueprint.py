@@ -2,13 +2,15 @@
 Anchor Modeling - SQLMesh Python Blueprint
 
 Generates all anchor modeling entities (anchors, ties, attributes, knots)
-from the unified model.yaml configuration using a single blueprint model.
+from model.xml (structure) and sources.yaml (source mappings).
 """
 
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 import yaml
+import sqlglot
 from sqlglot import exp
 
 from sqlmesh import model
@@ -20,7 +22,8 @@ from sqlmesh.core.model.kind import ModelKindName
 # Configuration
 # ---------------------------------------------------------------------------
 
-MODEL_YAML = Path(__file__).parent / "model.yaml"
+MODEL_XML = Path(__file__).parent / "model.xml"
+SOURCES_YAML = Path(__file__).parent / "sources.yaml"
 
 TARGET_SCHEMA = "dab"
 
@@ -30,50 +33,189 @@ TARGET_SCHEMA = "dab"
 
 
 class ModelValidationError(Exception):
-    """Raised when model.yaml is invalid or incomplete."""
+    """Raised when model structure or sources are invalid."""
     pass
 
 
-def _load_model(path: Path = MODEL_YAML) -> dict[str, Any]:
-    """Load the unified model.yaml."""
-    with open(path) as f:
-        return yaml.safe_load(f)
+def _parse_xml_structure(xml_path: Path) -> dict[str, Any]:
+    """
+    Parse model.xml for anchor model structure.
+    Returns: {anchors: {mnemonic: {descriptor, ...}}, ties: {name: {roles, ...}}}
+    """
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+
+    model_structure = {"anchors": {}, "ties": {}}
+
+    # Parse anchors
+    for anchor_elem in root.findall("anchor"):
+        mnemonic = anchor_elem.get("mnemonic")
+        descriptor = anchor_elem.get("descriptor")
+        model_structure["anchors"][mnemonic] = {
+            "mnemonic": mnemonic,
+            "descriptor": descriptor,
+        }
+
+    # Parse ties
+    for tie_elem in root.findall("tie"):
+        roles = []
+        for role_elem in tie_elem.findall("anchorRole"):
+            roles.append({
+                "type": role_elem.get("type"),
+                "role": role_elem.get("role"),
+                "identifier": role_elem.get("identifier") == "true",
+            })
+
+        # Build tie name from roles
+        tie_name = _build_tie_name(roles)
+        model_structure["ties"][tie_name] = {"roles": roles}
+
+    return model_structure
 
 
-def _validate_anchor_sources(model_data: dict[str, Any]) -> None:
-    """Validate each anchor has required source fields."""
+def _build_tie_name(roles: list[dict[str, Any]]) -> str:
+    """Build canonical tie name from roles."""
+    sorted_roles = sorted(roles, key=lambda r: (not r.get("identifier", False), r["type"]))
+    parts = []
+    for r in sorted_roles:
+        parts.extend([r["type"], r["role"]])
+    return "_".join(parts)
+
+
+def _load_sources(sources_path: Path) -> dict[str, Any]:
+    """Load source mappings from sources.yaml."""
+    if not sources_path.exists():
+        return {"anchors": {}, "ties": {}}
+    with open(sources_path) as f:
+        return yaml.safe_load(f) or {"anchors": {}, "ties": {}}
+
+
+def _load_model(
+    xml_path: Path = MODEL_XML,
+    sources_path: Path = SOURCES_YAML,
+) -> dict[str, Any]:
+    """
+    Load anchor model by combining structure from XML and sources from YAML.
+    """
+    structure = _parse_xml_structure(xml_path)
+    sources = _load_sources(sources_path)
+
+    # Merge sources into structure
+    for mnemonic, anchor_data in structure["anchors"].items():
+        anchor_data["sources"] = sources.get("anchors", {}).get(mnemonic, [])
+
+    for tie_name, tie_data in structure["ties"].items():
+        tie_data["sources"] = sources.get("ties", {}).get(tie_name, [])
+
+    return structure
+
+
+def _generate_anchor_stub(mnemonic: str, descriptor: str) -> str:
+    """Generate YAML stub for a missing anchor source."""
+    return f"""  {mnemonic}:  # {descriptor}
+    - system: ???
+      table: ???
+      key: ???"""
+
+
+def _generate_tie_stub(tie_name: str, roles: list[dict[str, Any]]) -> str:
+    """Generate YAML stub for a missing tie source."""
+    # Build keys section with role-specific or anchor-type keys
+    anchor_counts: dict[str, int] = {}
+    for r in roles:
+        anchor_counts[r["type"]] = anchor_counts.get(r["type"], 0) + 1
+
+    keys_lines = []
+    for r in roles:
+        anchor_type = r["type"]
+        if anchor_counts[anchor_type] > 1:
+            # Multiple roles for same anchor type - use role-specific key
+            keys_lines.append(f"        {anchor_type}_{r['role']}: ???")
+        else:
+            # Single role for this anchor type
+            keys_lines.append(f"        {anchor_type}: ???")
+
+    keys_section = "\n".join(keys_lines)
+
+    return f"""  {tie_name}:
+    - system: ???
+      table: ???
+      keys:
+{keys_section}"""
+
+
+def _validate_anchor_sources(model_data: dict[str, Any]) -> list[str]:
+    """Validate anchor sources and return list of error stubs."""
     required_fields = {"system", "table", "key"}
+    stubs = []
 
     for mnemonic, config in model_data.get("anchors", {}).items():
         sources = config.get("sources", [])
+        descriptor = config.get("descriptor", mnemonic)
+
         if not sources:
-            raise ModelValidationError(f"Anchor {mnemonic} has no sources defined")
+            stubs.append(_generate_anchor_stub(mnemonic, descriptor))
+            continue
 
         for i, src in enumerate(sources):
             missing = required_fields - set(src.keys())
             if missing:
-                raise ModelValidationError(
-                    f"Anchor {mnemonic} source[{i}] missing required fields: {sorted(missing)}"
+                stubs.append(
+                    f"# Anchor {mnemonic} source[{i}] missing fields: {sorted(missing)}\n"
+                    + _generate_anchor_stub(mnemonic, descriptor)
                 )
 
+    return stubs
 
-def _validate_tie_sources(model_data: dict[str, Any]) -> None:
-    """Validate each tie has required source fields."""
+
+def _validate_tie_sources(model_data: dict[str, Any]) -> list[str]:
+    """Validate tie sources and return list of error stubs."""
+    stubs = []
+
     for tie_name, config in model_data.get("ties", {}).items():
         sources = config.get("sources", [])
+        roles = config.get("roles", [])
+
         if not sources:
-            raise ModelValidationError(f"Tie {tie_name} has no sources defined")
+            stubs.append(_generate_tie_stub(tie_name, roles))
+            continue
 
         for i, src in enumerate(sources):
+            missing_fields = []
             for field in ("system", "table", "keys"):
                 if field not in src:
-                    raise ModelValidationError(f"Tie {tie_name} source[{i}] missing '{field}'")
+                    missing_fields.append(field)
+
+            if missing_fields:
+                stubs.append(
+                    f"# Tie {tie_name} source[{i}] missing fields: {missing_fields}\n"
+                    + _generate_tie_stub(tie_name, roles)
+                )
+
+    return stubs
 
 
 def _validate_model(model_data: dict[str, Any]) -> None:
-    """Validate the unified model.yaml."""
-    _validate_anchor_sources(model_data)
-    _validate_tie_sources(model_data)
+    """Validate the combined model structure and sources."""
+    anchor_stubs = _validate_anchor_sources(model_data)
+    tie_stubs = _validate_tie_sources(model_data)
+
+    if anchor_stubs or tie_stubs:
+        error_msg = ["Missing or incomplete source mappings in sources.yaml\n"]
+        error_msg.append("Add these entries to sources.yaml:\n")
+
+        if anchor_stubs:
+            error_msg.append("anchors:")
+            for stub in anchor_stubs:
+                error_msg.append(stub)
+            error_msg.append("")
+
+        if tie_stubs:
+            error_msg.append("ties:")
+            for stub in tie_stubs:
+                error_msg.append(stub)
+
+        raise ModelValidationError("\n".join(error_msg))
 
 
 # ---------------------------------------------------------------------------
@@ -139,9 +281,11 @@ def _build_incremental_query(
         order=exp.Order(expressions=[exp.Ordered(this=exp.Column(this=exp.to_identifier(loaded_at_col)), desc=True)]),
     )
 
+    # Build explicit table reference: schema.table_name
+    full_table_name = f"{TARGET_SCHEMA}.{model_name}"
     target_select = (
         exp.select(*key_columns)
-        .from_(model_name)
+        .from_(full_table_name)
         .qualify(exp.EQ(this=window, expression=exp.Literal.number(1)))
     )
 
@@ -326,7 +470,7 @@ def _get_blueprints() -> list[dict[str, Any]]:
     # Anchors
     for mnemonic, config in model_data["anchors"].items():
         blueprints.append({
-            "model_name": f"{TARGET_SCHEMA}.anchor__{mnemonic}",
+            "model_name": f"anchor__{mnemonic}",
             "entity_type": "anchor",
             "name": mnemonic,
             "mnemonic": mnemonic,
@@ -337,7 +481,7 @@ def _get_blueprints() -> list[dict[str, Any]]:
     # Ties
     for tie_name, config in model_data.get("ties", {}).items():
         blueprints.append({
-            "model_name": f"{TARGET_SCHEMA}.tie__{tie_name}",
+            "model_name": f"tie__{tie_name}",
             "entity_type": "tie",
             "name": tie_name,
             "roles": config["roles"],
@@ -370,7 +514,7 @@ _configs = {bp["model_name"]: bp for bp in _blueprint_data}
 
 
 @model(
-    "@{model_name}",
+    f"{TARGET_SCHEMA}.@{{model_name}}",
     is_sql=True,
     kind={"name": ModelKindName.INCREMENTAL_UNMANAGED},
     blueprints=_blueprint_data,
