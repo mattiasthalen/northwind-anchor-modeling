@@ -336,23 +336,106 @@ def build_tie_query(
     sources: list[dict[str, Any]],
     anchor_descriptors: dict[str, str],
     execution_ts: str,
+    model_name: str,
 ) -> exp.Expression:
     """
-    Build UNION ALL query for all sources of a tie.
+    Build incremental tie query with anti-join pattern.
+
+    Structure:
+        WITH target AS (
+            SELECT key_cols FROM model QUALIFY ROW_NUMBER() OVER (...) = 1
+        ),
+        source AS (
+            SELECT ... FROM source_tables
+        )
+        SELECT source.* FROM source
+        LEFT JOIN target ON key_cols
+        WHERE target.key IS NULL
     """
     if not sources:
         raise ValueError(f"No sources defined for tie {tie_name}")
 
+    # Build unique key column names from roles
+    anchor_counts: dict[str, int] = {}
+    for r in roles:
+        anchor_counts[r["type"]] = anchor_counts.get(r["type"], 0) + 1
+
+    unique_keys = []
+    for r in roles:
+        anchor_type = r["type"]
+        if anchor_counts[anchor_type] > 1:
+            unique_keys.append(f"{anchor_type}_{r['role']}_id")
+        else:
+            unique_keys.append(f"{anchor_type}_id")
+
+    # Build source selects (UNION ALL if multiple)
     selects = [build_tie_select(tie_name, roles, src, anchor_descriptors, execution_ts) for src in sources]
 
     if len(selects) == 1:
-        return selects[0]
+        source_query = selects[0]
+    else:
+        source_query = selects[0]
+        for select in selects[1:]:
+            source_query = exp.Union(this=source_query, expression=select, distinct=False)
 
-    result = selects[0]
-    for select in selects[1:]:
-        result = exp.Union(this=result, expression=select, distinct=False)
+    # Build target CTE: SELECT key_cols FROM model QUALIFY ROW_NUMBER() = 1
+    key_columns = [exp.Column(this=exp.to_identifier(k)) for k in unique_keys]
 
-    return result
+    window = exp.Window(
+        this=exp.RowNumber(),
+        partition_by=key_columns,
+        order=exp.Order(expressions=[exp.Ordered(this=exp.Column(this=exp.to_identifier("loaded_at")), desc=True)]),
+    )
+
+    target_select = (
+        exp.select(*key_columns)
+        .from_(model_name)
+        .qualify(exp.EQ(this=window, expression=exp.Literal.number(1)))
+    )
+
+    # Build main select with anti-join using two CTEs
+    join_conditions = [
+        exp.EQ(
+            this=exp.Column(this=exp.to_identifier(k), table=exp.to_identifier("source")),
+            expression=exp.Column(this=exp.to_identifier(k), table=exp.to_identifier("target")),
+        )
+        for k in unique_keys
+    ]
+
+    if len(join_conditions) == 1:
+        join_on = join_conditions[0]
+    else:
+        join_on = join_conditions[0]
+        for cond in join_conditions[1:]:
+            join_on = exp.And(this=join_on, expression=cond)
+
+    # Select explicit columns with types for self-referencing model inference
+    outer_columns = [
+        exp.Cast(
+            this=exp.Column(this=exp.to_identifier(k), table=exp.to_identifier("source")),
+            to=exp.DataType.build("VARCHAR"),
+        ).as_(k)
+        for k in unique_keys
+    ]
+    outer_columns.append(
+        exp.Cast(
+            this=exp.Column(this=exp.to_identifier("loaded_at"), table=exp.to_identifier("source")),
+            to=exp.DataType.build("TIMESTAMP"),
+        ).as_("loaded_at")
+    )
+
+    main_select = (
+        exp.select(*outer_columns)
+        .from_(exp.Table(this=exp.to_identifier("source")))
+        .join(
+            exp.Table(this=exp.to_identifier("target")),
+            on=join_on,
+            join_type="ANTI",
+        )
+    )
+
+    # Combine with both CTEs
+    return main_select.with_("target", as_=target_select).with_("source", as_=source_query)
 
 
 # ---------------------------------------------------------------------------
@@ -417,11 +500,16 @@ def get_tie_blueprints() -> list[dict[str, Any]]:
             else:
                 unique_keys.append(f"{anchor_type}_id")
 
+        # Build columns dict for self-referencing model
+        columns = {k: "VARCHAR" for k in unique_keys}
+        columns["loaded_at"] = "TIMESTAMP"
+
         blueprints.append({
             "tie_name": tie_name,
             "roles": roles,
             "sources": sources,
             "unique_key": unique_keys,
+            "columns": columns,
             "anchor_descriptors": anchor_descriptors,
         })
 
