@@ -738,3 +738,202 @@ class TestGetBlueprints:
             assert "model_name" in bp
             assert "roles" in bp
             assert bp["model_name"].startswith("tie__")
+
+
+# ---------------------------------------------------------------------------
+# Attribute Tests
+# ---------------------------------------------------------------------------
+
+
+class TestValidateAttributeSources:
+    def test_valid_attribute(self):
+        model_data = {
+            "attributes": {
+                "OH_SHA": {
+                    "name": "OH_SHA",
+                    "anchor_mnemonic": "OH",
+                    "anchor_descriptor": "Orders",
+                    "descriptor": "ShipAddress",
+                    "sources": [
+                        {
+                            "system": "nw",
+                            "table": "orders",
+                            "key": "order_id",
+                            "value": "ship_address",
+                        }
+                    ],
+                }
+            }
+        }
+        stubs = blueprint._validate_attribute_sources(model_data)
+        assert len(stubs) == 0
+
+    def test_missing_sources_returns_stub(self):
+        model_data = {
+            "attributes": {
+                "OH_SHA": {
+                    "name": "OH_SHA",
+                    "anchor_mnemonic": "OH",
+                    "anchor_descriptor": "Orders",
+                    "descriptor": "ShipAddress",
+                    "sources": [],
+                }
+            }
+        }
+        stubs = blueprint._validate_attribute_sources(model_data)
+        assert len(stubs) == 1
+        assert "OH_SHA:" in stubs[0]
+        assert "system: ???" in stubs[0]
+        assert "table: ???" in stubs[0]
+        assert "key: ???" in stubs[0]
+        assert "value: ???" in stubs[0]
+
+    def test_missing_required_field_returns_stub(self):
+        model_data = {
+            "attributes": {
+                "OH_SHA": {
+                    "name": "OH_SHA",
+                    "anchor_mnemonic": "OH",
+                    "anchor_descriptor": "Orders",
+                    "descriptor": "ShipAddress",
+                    "sources": [{"system": "nw", "table": "orders"}],  # Missing key and value
+                }
+            }
+        }
+        stubs = blueprint._validate_attribute_sources(model_data)
+        assert len(stubs) == 1
+        assert "OH_SHA" in stubs[0]
+
+
+class TestBuildAttributeSelect:
+    def test_historized_attribute_select(self):
+        source = {
+            "system": "nw",
+            "table": "orders",
+            "key": "order_id",
+            "value": "ship_address",
+        }
+        select = blueprint._build_attribute_select(
+            "OH_SHA", "Orders", "ShipAddress", source, "2024-01-01T00:00:00", is_historized=True
+        )
+        sql = select.sql()
+        assert "OH_SHA_ID" in sql
+        assert "OH_SHA_ShipAddress" in sql
+        assert "OH_SHA_System" in sql
+        assert "OH_SHA_Tenant" in sql
+        assert "OH_SHA_ChangedAt" in sql
+        assert "OH_SHA_LoadedAt" in sql
+
+    def test_static_attribute_select(self):
+        source = {
+            "system": "nw",
+            "table": "products",
+            "key": "product_id",
+            "value": "product_name",
+        }
+        select = blueprint._build_attribute_select(
+            "PR_PNA", "Products", "ProductName", source, "2024-01-01T00:00:00", is_historized=False
+        )
+        sql = select.sql()
+        assert "PR_PNA_ID" in sql
+        assert "PR_PNA_ProductName" in sql
+        assert "PR_PNA_System" in sql
+        assert "PR_PNA_Tenant" in sql
+        assert "PR_PNA_ChangedAt" not in sql  # Static attributes don't have ChangedAt
+        assert "PR_PNA_LoadedAt" in sql
+
+
+class TestBuildAttributeQuery:
+    def test_builds_full_historized_attribute_query(self):
+        attr_blueprint = {
+            "name": "OH_SHA",
+            "anchor_descriptor": "Orders",
+            "descriptor": "ShipAddress",
+            "is_historized": True,
+            "sources": [
+                {
+                    "system": "nw",
+                    "table": "orders",
+                    "key": "order_id",
+                    "value": "ship_address",
+                }
+            ],
+        }
+        query = blueprint._build_attribute_query(attr_blueprint, "2024-01-01T00:00:00", "attribute__oh_sha")
+        sql = query.sql()
+        assert "OH_SHA_ID" in sql
+        assert "OH_SHA_ShipAddress" in sql
+        assert "OH_SHA_ChangedAt" in sql
+        assert "OH_SHA_LoadedAt" in sql
+
+    def test_builds_full_static_attribute_query(self):
+        attr_blueprint = {
+            "name": "PR_PNA",
+            "anchor_descriptor": "Products",
+            "descriptor": "ProductName",
+            "is_historized": False,
+            "sources": [
+                {
+                    "system": "nw",
+                    "table": "products",
+                    "key": "product_id",
+                    "value": "product_name",
+                }
+            ],
+        }
+        query = blueprint._build_attribute_query(attr_blueprint, "2024-01-01T00:00:00", "attribute__pr_pna")
+        sql = query.sql()
+        assert "PR_PNA_ID" in sql
+        assert "PR_PNA_ProductName" in sql
+        assert "PR_PNA_ChangedAt" not in sql  # Static
+        assert "PR_PNA_LoadedAt" in sql
+
+    def test_attribute_query_no_sources_raises(self):
+        attr_blueprint = {
+            "name": "OH_SHA",
+            "anchor_descriptor": "Orders",
+            "descriptor": "ShipAddress",
+            "is_historized": True,
+            "sources": [],
+        }
+        with pytest.raises(ValueError, match="No sources defined"):
+            blueprint._build_attribute_query(attr_blueprint, "2024-01-01T00:00:00", "attribute__oh_sha")
+
+
+class TestBuildQueryWithAttributes:
+    def test_dispatches_to_attribute(self):
+        attr_blueprint = {
+            "entity_type": "attribute",
+            "name": "OH_SHA",
+            "anchor_descriptor": "Orders",
+            "descriptor": "ShipAddress",
+            "is_historized": True,
+            "sources": [
+                {
+                    "system": "nw",
+                    "table": "orders",
+                    "key": "order_id",
+                    "value": "ship_address",
+                }
+            ],
+        }
+        query = blueprint._build_query(attr_blueprint, "2024-01-01T00:00:00", "attribute__oh_sha")
+        sql = query.sql()
+        assert "OH_SHA_ID" in sql
+        assert "OH_SHA_ShipAddress" in sql
+
+
+class TestGetBlueprintsWithAttributes:
+    def test_includes_attributes(self):
+        blueprints = blueprint._get_blueprints()
+        attribute_blueprints = [b for b in blueprints if b["entity_type"] == "attribute"]
+
+        assert len(attribute_blueprints) > 0
+
+        for bp in attribute_blueprints:
+            assert "model_name" in bp
+            assert "name" in bp
+            assert "anchor_mnemonic" in bp
+            assert "anchor_descriptor" in bp
+            assert "is_historized" in bp
+            assert bp["model_name"].startswith("attribute__")

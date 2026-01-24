@@ -124,3 +124,71 @@ ties:
       keys:
         TE: territory_id
         RE: region_id
+
+attributes:
+  OH_SHA:  # Orders - ShipAddress
+    - system: northwind
+      table: das.orders
+      key: order_id
+      value: ship_address
+      # Optional: changed_at: some_timestamp_column
+
+  OH_SHC:  # Orders - ShipCity
+    - system: northwind
+      table: das.orders
+      key: order_id
+      value: ship_city
+
+  OH_SHN:  # Orders - ShipName
+    - system: northwind
+      table: das.orders
+      key: order_id
+      value: ship_name
+
+  OH_SHR:  # Orders - ShipRegion
+    - system: northwind
+      table: das.orders
+      key: order_id
+      value: ship_region
+
+  OH_SPC:  # Orders - ShipPostalCode
+    - system: northwind
+      table: das.orders
+      key: order_id
+      value: ship_postal_code
+
+  OH_ODA:  # Orders - OrderDate
+    - system: northwind
+      table: das.orders
+      key: order_id
+      value: order_date
+
+  OH_SCY:  # Orders - ShipCountry (knotted)
+    - system: northwind
+      table: das.orders
+      key: order_id
+      value: ship_country
+
+  OH_SHD:  # Orders - ShippedDate
+    - system: northwind
+      table: das.orders
+      key: order_id
+      value: shipped_date
+
+  OH_RED:  # Orders - RequiredDate
+    - system: northwind
+      table: das.orders
+      key: order_id
+      value: required_date
+
+  OH_FRE:  # Orders - Freight
+    - system: northwind
+      table: das.orders
+      key: order_id
+      value: freight
+
+  OH_SHV:  # Orders - ShipVia
+    - system: northwind
+      table: das.orders
+      key: order_id
+      value: ship_via
