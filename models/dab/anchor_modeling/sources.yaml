@@ -192,3 +192,9 @@ attributes:
       table: das.orders
       key: order_id
       value: ship_via
+
+knots:
+  COU:  # Country
+    - system: northwind
+      table: das.orders
+      value: ship_country  # Distinct values from this column

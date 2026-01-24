@@ -96,12 +96,12 @@ class ModelValidationError(Exception):
 def _parse_xml_structure(xml_path: Path) -> dict[str, Any]:
     """
     Parse model.xml for anchor model structure.
-    Returns: {anchors: {...}, ties: {...}, attributes: {...}}
+    Returns: {anchors: {...}, ties: {...}, attributes: {...}, knots: {...}}
     """
     tree = ET.parse(xml_path)
     root = tree.getroot()
 
-    model_structure = {"anchors": {}, "ties": {}, "attributes": {}}
+    model_structure = {"anchors": {}, "ties": {}, "attributes": {}, "knots": {}}
 
     # Parse anchors with their nested attributes
     for anchor_elem in root.findall("anchor"):
@@ -158,6 +158,18 @@ def _parse_xml_structure(xml_path: Path) -> dict[str, Any]:
             "is_historized": is_historized,
         }
 
+    # Parse knots
+    for knot_elem in root.findall("knot"):
+        mnemonic = knot_elem.get("mnemonic")
+        descriptor = knot_elem.get("descriptor")
+        data_range = knot_elem.get("dataRange")
+
+        model_structure["knots"][mnemonic] = {
+            "mnemonic": mnemonic,
+            "descriptor": descriptor,
+            "data_range": data_range,
+        }
+
     return model_structure
 
 
@@ -173,9 +185,9 @@ def _build_tie_name(roles: list[dict[str, Any]]) -> str:
 def _load_sources(sources_path: Path) -> dict[str, Any]:
     """Load source mappings from sources.yaml."""
     if not sources_path.exists():
-        return {"anchors": {}, "ties": {}, "attributes": {}}
+        return {"anchors": {}, "ties": {}, "attributes": {}, "knots": {}}
     with open(sources_path) as f:
-        return yaml.safe_load(f) or {"anchors": {}, "ties": {}, "attributes": {}}
+        return yaml.safe_load(f) or {"anchors": {}, "ties": {}, "attributes": {}, "knots": {}}
 
 
 def _load_model(
@@ -197,6 +209,9 @@ def _load_model(
 
     for attr_name, attr_data in structure["attributes"].items():
         attr_data["sources"] = sources.get("attributes", {}).get(attr_name, [])
+
+    for mnemonic, knot_data in structure["knots"].items():
+        knot_data["sources"] = sources.get("knots", {}).get(mnemonic, [])
 
     return structure
 
@@ -322,13 +337,46 @@ def _validate_attribute_sources(model_data: dict[str, Any]) -> list[str]:
     return stubs
 
 
+def _generate_knot_stub(mnemonic: str, descriptor: str) -> str:
+    """Generate YAML stub for a missing knot source."""
+    return f"""  {mnemonic}:  # {descriptor}
+    - system: ???
+      table: ???
+      value: ???  # Column with distinct knot values"""
+
+
+def _validate_knot_sources(model_data: dict[str, Any]) -> list[str]:
+    """Validate knot sources and return list of error stubs."""
+    required_fields = {"system", "table", "value"}
+    stubs = []
+
+    for mnemonic, config in model_data.get("knots", {}).items():
+        sources = config.get("sources", [])
+        descriptor = config.get("descriptor", "")
+
+        if not sources:
+            stubs.append(_generate_knot_stub(mnemonic, descriptor))
+            continue
+
+        for i, src in enumerate(sources):
+            missing = required_fields - set(src.keys())
+            if missing:
+                stubs.append(
+                    f"# Knot {mnemonic} source[{i}] missing fields: {sorted(missing)}\n"
+                    + _generate_knot_stub(mnemonic, descriptor)
+                )
+
+    return stubs
+
+
 def _validate_model(model_data: dict[str, Any]) -> None:
     """Validate the combined model structure and sources."""
     anchor_stubs = _validate_anchor_sources(model_data)
     tie_stubs = _validate_tie_sources(model_data)
     attribute_stubs = _validate_attribute_sources(model_data)
+    knot_stubs = _validate_knot_sources(model_data)
 
-    if anchor_stubs or tie_stubs or attribute_stubs:
+    if anchor_stubs or tie_stubs or attribute_stubs or knot_stubs:
         error_msg = ["Missing or incomplete source mappings in sources.yaml\n"]
         error_msg.append("Add these entries to sources.yaml:\n")
 
@@ -347,6 +395,12 @@ def _validate_model(model_data: dict[str, Any]) -> None:
         if attribute_stubs:
             error_msg.append("attributes:")
             for stub in attribute_stubs:
+                error_msg.append(stub)
+            error_msg.append("")
+
+        if knot_stubs:
+            error_msg.append("knots:")
+            for stub in knot_stubs:
                 error_msg.append(stub)
 
         raise ModelValidationError("\n".join(error_msg))
@@ -642,6 +696,8 @@ def _build_attribute_select(
     source: dict[str, Any],
     execution_ts: str,
     is_historized: bool,
+    is_knotted: bool = False,
+    knot_descriptor: str | None = None,
 ) -> exp.Select:
     """Build SELECT for one attribute source."""
     system = source["system"]
@@ -655,8 +711,25 @@ def _build_attribute_select(
     keyset_expr = _build_keyset_expression(anchor_descriptor, system, key, tenant)
     tenant_expr = exp.Literal.string(tenant) if tenant else exp.Null()
 
-    # Value column
-    value_expr = exp.Column(this=exp.to_identifier(value))
+    # Value column - for knotted attributes, build knot ID reference
+    if is_knotted and knot_descriptor:
+        # Build knot ID: Descriptor@system[~tenant]|value
+        value_col = exp.Column(this=exp.to_identifier(value))
+        if tenant:
+            value_expr = exp.func(
+                "CONCAT",
+                exp.Literal.string(f"{knot_descriptor}@{system}~{tenant}|"),
+                exp.cast(value_col, exp.DataType.build("TEXT")),
+            )
+        else:
+            value_expr = exp.func(
+                "CONCAT",
+                exp.Literal.string(f"{knot_descriptor}@{system}|"),
+                exp.cast(value_col, exp.DataType.build("TEXT")),
+            )
+    else:
+        # Regular attribute - just use the value
+        value_expr = exp.Column(this=exp.to_identifier(value))
 
     # Build columns list
     columns = [
@@ -688,6 +761,8 @@ def _build_attribute_query(blueprint: dict[str, Any], execution_ts: str, model_n
     attr_descriptor = blueprint["descriptor"]
     sources = blueprint["sources"]
     is_historized = blueprint["is_historized"]
+    is_knotted = blueprint.get("is_knotted", False)
+    knot_descriptor = blueprint.get("knot_descriptor")
 
     if not sources:
         raise ValueError(f"No sources defined for attribute {attr_name}")
@@ -697,7 +772,9 @@ def _build_attribute_query(blueprint: dict[str, Any], execution_ts: str, model_n
     loaded_at_col = f"{attr_name}_LoadedAt"
 
     selects = [
-        _build_attribute_select(attr_name, anchor_descriptor, attr_descriptor, src, execution_ts, is_historized)
+        _build_attribute_select(
+            attr_name, anchor_descriptor, attr_descriptor, src, execution_ts, is_historized, is_knotted, knot_descriptor
+        )
         for src in sources
     ]
 
@@ -724,6 +801,86 @@ def _build_attribute_query(blueprint: dict[str, Any], execution_ts: str, model_n
 
 
 # ---------------------------------------------------------------------------
+# Knot Query Generation
+# ---------------------------------------------------------------------------
+
+
+def _build_knot_select(
+    mnemonic: str,
+    descriptor: str,
+    source: dict[str, Any],
+    execution_ts: str,
+) -> exp.Select:
+    """Build SELECT for one knot source."""
+    system = source["system"]
+    tenant = source.get("tenant")
+    table = source["table"]
+    value = source["value"]
+
+    # Build knot ID from value (knots use value as the identifier)
+    # Format: Descriptor@system[~tenant]|value
+    value_col = exp.Column(this=exp.to_identifier(value))
+
+    if tenant:
+        id_expr = exp.func(
+            "CONCAT",
+            exp.Literal.string(f"{descriptor}@{system}~{tenant}|"),
+            exp.cast(value_col, exp.DataType.build("TEXT")),
+        )
+    else:
+        id_expr = exp.func(
+            "CONCAT",
+            exp.Literal.string(f"{descriptor}@{system}|"),
+            exp.cast(value_col, exp.DataType.build("TEXT")),
+        )
+
+    tenant_expr = exp.Literal.string(tenant) if tenant else exp.Null()
+    loaded_at_expr = exp.cast(exp.Literal.string(execution_ts), exp.DataType.build("timestamp"))
+
+    columns = [
+        id_expr.as_(f"{mnemonic}_ID"),
+        value_col.as_(f"{mnemonic}_{descriptor}"),
+        exp.Literal.string(system).as_(f"{mnemonic}_System"),
+        tenant_expr.as_(f"{mnemonic}_Tenant"),
+        loaded_at_expr.as_(f"{mnemonic}_LoadedAt"),
+    ]
+
+    # DISTINCT is critical for knots - we only want unique values
+    return exp.select(*columns).from_(table).distinct()
+
+
+def _build_knot_query(blueprint: dict[str, Any], execution_ts: str, model_name: str) -> exp.Expression:
+    """Build incremental knot query."""
+    mnemonic = blueprint["mnemonic"]
+    descriptor = blueprint["descriptor"]
+    sources = blueprint["sources"]
+
+    if not sources:
+        raise ValueError(f"No sources defined for knot {mnemonic}")
+
+    unique_keys = [f"{mnemonic}_ID"]
+    loaded_at_col = f"{mnemonic}_LoadedAt"
+
+    selects = [_build_knot_select(mnemonic, descriptor, src, execution_ts) for src in sources]
+
+    output_columns = [
+        (f"{mnemonic}_ID", "VARCHAR"),
+        (f"{mnemonic}_{descriptor}", "VARCHAR"),
+        (f"{mnemonic}_System", "VARCHAR"),
+        (f"{mnemonic}_Tenant", "VARCHAR"),
+        (f"{mnemonic}_LoadedAt", "TIMESTAMP"),
+    ]
+
+    return _build_incremental_query(
+        source_query=_union_all(selects),
+        model_name=model_name,
+        unique_keys=unique_keys,
+        loaded_at_col=loaded_at_col,
+        output_columns=output_columns,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Blueprint Generation
 # ---------------------------------------------------------------------------
 
@@ -734,6 +891,7 @@ def _get_blueprints() -> list[dict[str, Any]]:
     _validate_model(model_data)
 
     anchor_descriptors = {mnemonic: config["descriptor"] for mnemonic, config in model_data["anchors"].items()}
+    knot_descriptors = {mnemonic: config["descriptor"] for mnemonic, config in model_data.get("knots", {}).items()}
 
     blueprints = []
 
@@ -762,6 +920,11 @@ def _get_blueprints() -> list[dict[str, Any]]:
 
     # Attributes
     for attr_name, config in model_data.get("attributes", {}).items():
+        # Get knot descriptor if this attribute is knotted
+        knot_descriptor = None
+        if config["is_knotted"] and config.get("knot_range"):
+            knot_descriptor = knot_descriptors.get(config["knot_range"])
+
         blueprints.append({
             "model_name": f"attribute__{attr_name}",
             "entity_type": "attribute",
@@ -771,6 +934,18 @@ def _get_blueprints() -> list[dict[str, Any]]:
             "descriptor": config["descriptor"],
             "is_historized": config["is_historized"],
             "is_knotted": config["is_knotted"],
+            "knot_descriptor": knot_descriptor,
+            "sources": config.get("sources", []),
+        })
+
+    # Knots
+    for mnemonic, config in model_data.get("knots", {}).items():
+        blueprints.append({
+            "model_name": f"knot__{mnemonic}",
+            "entity_type": "knot",
+            "name": mnemonic,
+            "mnemonic": mnemonic,
+            "descriptor": config["descriptor"],
             "sources": config.get("sources", []),
         })
 
@@ -787,6 +962,8 @@ def _build_query(blueprint: dict[str, Any], execution_ts: str, model_name: str) 
         return _build_tie_query(blueprint, execution_ts, model_name)
     elif entity_type == "attribute":
         return _build_attribute_query(blueprint, execution_ts, model_name)
+    elif entity_type == "knot":
+        return _build_knot_query(blueprint, execution_ts, model_name)
     else:
         raise ValueError(f"Unknown entity type: {entity_type}")
 

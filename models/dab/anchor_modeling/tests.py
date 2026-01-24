@@ -937,3 +937,200 @@ class TestGetBlueprintsWithAttributes:
             assert "anchor_descriptor" in bp
             assert "is_historized" in bp
             assert bp["model_name"].startswith("attribute__")
+
+
+class TestValidateKnotSources:
+    def test_valid_knot(self):
+        model_data = {
+            "knots": {
+                "COU": {
+                    "mnemonic": "COU",
+                    "descriptor": "Country",
+                    "sources": [
+                        {
+                            "system": "nw",
+                            "table": "orders",
+                            "value": "ship_country",
+                        }
+                    ],
+                }
+            }
+        }
+        stubs = blueprint._validate_knot_sources(model_data)
+        assert len(stubs) == 0
+
+    def test_missing_sources_returns_stub(self):
+        model_data = {
+            "knots": {
+                "COU": {
+                    "mnemonic": "COU",
+                    "descriptor": "Country",
+                    "sources": [],
+                }
+            }
+        }
+        stubs = blueprint._validate_knot_sources(model_data)
+        assert len(stubs) == 1
+        assert "COU:" in stubs[0]
+        assert "Country" in stubs[0]
+
+    def test_missing_required_field_returns_stub(self):
+        model_data = {
+            "knots": {
+                "COU": {
+                    "mnemonic": "COU",
+                    "descriptor": "Country",
+                    "sources": [
+                        {
+                            "system": "nw",
+                            # Missing 'table' and 'value'
+                        }
+                    ],
+                }
+            }
+        }
+        stubs = blueprint._validate_knot_sources(model_data)
+        assert len(stubs) == 1
+
+
+class TestBuildKnotSelect:
+    def test_knot_select_without_tenant(self):
+        source = {
+            "system": "nw",
+            "table": "orders",
+            "value": "ship_country",
+        }
+        select = blueprint._build_knot_select("COU", "Country", source, "2024-01-01T00:00:00")
+        sql = select.sql()
+
+        assert "COU_ID" in sql
+        assert "COU_Country" in sql
+        assert "COU_System" in sql
+        assert "COU_Tenant" in sql
+        assert "COU_LoadedAt" in sql
+        assert "DISTINCT" in sql.upper()
+        assert "Country@nw|" in sql
+
+    def test_knot_select_with_tenant(self):
+        source = {
+            "system": "nw",
+            "tenant": "tenant1",
+            "table": "orders",
+            "value": "ship_country",
+        }
+        select = blueprint._build_knot_select("COU", "Country", source, "2024-01-01T00:00:00")
+        sql = select.sql()
+
+        assert "Country@nw~tenant1|" in sql
+
+
+class TestBuildKnotQuery:
+    def test_builds_full_knot_query(self):
+        bp = {
+            "mnemonic": "COU",
+            "descriptor": "Country",
+            "sources": [
+                {
+                    "system": "nw",
+                    "table": "orders",
+                    "value": "ship_country",
+                }
+            ],
+        }
+        query = blueprint._build_knot_query(bp, "2024-01-01T00:00:00", "knot__cou")
+        sql = query.sql()
+
+        assert "COU_ID" in sql
+        assert "COU_Country" in sql
+        assert "COU_System" in sql
+        assert "COU_LoadedAt" in sql
+
+    def test_knot_query_no_sources_raises(self):
+        bp = {
+            "mnemonic": "COU",
+            "descriptor": "Country",
+            "sources": [],
+        }
+        with pytest.raises(ValueError, match="No sources defined for knot COU"):
+            blueprint._build_knot_query(bp, "2024-01-01T00:00:00", "knot__cou")
+
+
+class TestBuildQueryWithKnots:
+    def test_dispatches_to_knot(self):
+        bp = {
+            "entity_type": "knot",
+            "mnemonic": "COU",
+            "descriptor": "Country",
+            "sources": [
+                {
+                    "system": "nw",
+                    "table": "orders",
+                    "value": "ship_country",
+                }
+            ],
+        }
+        query = blueprint._build_query(bp, "2024-01-01T00:00:00", "knot__cou")
+        assert query is not None
+
+
+class TestGetBlueprintsWithKnots:
+    def test_includes_knots(self):
+        blueprints = blueprint._get_blueprints()
+        knot_blueprints = [b for b in blueprints if b["entity_type"] == "knot"]
+
+        assert len(knot_blueprints) > 0
+
+        for bp in knot_blueprints:
+            assert "model_name" in bp
+            assert "name" in bp
+            assert "mnemonic" in bp
+            assert "descriptor" in bp
+            assert bp["model_name"].startswith("knot__")
+
+
+class TestKnottedAttributeSelect:
+    def test_knotted_attribute_creates_knot_id(self):
+        source = {
+            "system": "nw",
+            "table": "orders",
+            "key": "order_id",
+            "value": "ship_country",
+        }
+        select = blueprint._build_attribute_select(
+            "OH_SCY",
+            "Orders",
+            "ShipCountry",
+            source,
+            "2024-01-01T00:00:00",
+            is_historized=False,
+            is_knotted=True,
+            knot_descriptor="Country",
+        )
+        sql = select.sql()
+
+        assert "OH_SCY_ID" in sql
+        assert "OH_SCY_ShipCountry" in sql
+        # Should build knot ID reference
+        assert "Country@nw|" in sql
+
+    def test_regular_attribute_uses_raw_value(self):
+        source = {
+            "system": "nw",
+            "table": "orders",
+            "key": "order_id",
+            "value": "ship_address",
+        }
+        select = blueprint._build_attribute_select(
+            "OH_SHA",
+            "Orders",
+            "ShipAddress",
+            source,
+            "2024-01-01T00:00:00",
+            is_historized=True,
+            is_knotted=False,
+        )
+        sql = select.sql()
+
+        # Should NOT build knot ID - just use raw column
+        assert "Country@" not in sql
+        assert "ship_address" in sql.lower()
