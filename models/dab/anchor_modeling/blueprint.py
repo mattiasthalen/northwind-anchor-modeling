@@ -386,17 +386,26 @@ def _build_anchor_select(mnemonic: str, descriptor: str, source: dict[str, Any],
     tenant = source.get("tenant")
     table = source["table"]
     key = source["key"]
+    changed_at_col = source.get("changed_at")
 
     keyset_expr = _build_keyset_expression(descriptor, system, key, tenant)
     tenant_expr = exp.Literal.string(tenant) if tenant else exp.Null()
+
+    # ChangedAt: use source column if provided, otherwise use execution timestamp
+    if changed_at_col:
+        changed_at_expr = exp.Column(this=exp.to_identifier(changed_at_col))
+    else:
+        changed_at_expr = exp.cast(exp.Literal.string(execution_ts), exp.DataType.build("timestamp"))
+
     loaded_at_expr = exp.cast(exp.Literal.string(execution_ts), exp.DataType.build("timestamp"))
 
     return (
         exp.select(
-            keyset_expr.as_(f"{mnemonic}_id"),
-            exp.Literal.string(system).as_(f"{mnemonic}_system"),
-            tenant_expr.as_(f"{mnemonic}_tenant"),
-            loaded_at_expr.as_(f"{mnemonic}_loaded_at"),
+            keyset_expr.as_(f"{mnemonic}_ID"),
+            exp.Literal.string(system).as_(f"{mnemonic}_System"),
+            tenant_expr.as_(f"{mnemonic}_Tenant"),
+            changed_at_expr.as_(f"{mnemonic}_ChangedAt"),
+            loaded_at_expr.as_(f"{mnemonic}_LoadedAt"),
         )
         .from_(table)
     )
@@ -410,8 +419,12 @@ def _build_anchor_query(blueprint: dict[str, Any], execution_ts: str, model_name
     if not sources:
         raise ValueError(f"No sources defined for anchor {mnemonic}")
 
-    id_col = f"{mnemonic}_id"
-    loaded_at_col = f"{mnemonic}_loaded_at"
+    id_col = f"{mnemonic}_ID"
+    system_col = f"{mnemonic}_System"
+    tenant_col = f"{mnemonic}_Tenant"
+    changed_at_col = f"{mnemonic}_ChangedAt"
+    loaded_at_col = f"{mnemonic}_LoadedAt"
+
     selects = [_build_anchor_select(mnemonic, blueprint["descriptor"], src, execution_ts) for src in sources]
 
     return _build_incremental_query(
@@ -421,8 +434,9 @@ def _build_anchor_query(blueprint: dict[str, Any], execution_ts: str, model_name
         loaded_at_col=loaded_at_col,
         output_columns=[
             (id_col, "VARCHAR"),
-            (f"{mnemonic}_system", "VARCHAR"),
-            (f"{mnemonic}_tenant", "VARCHAR"),
+            (system_col, "VARCHAR"),
+            (tenant_col, "VARCHAR"),
+            (changed_at_col, "TIMESTAMP"),
             (loaded_at_col, "TIMESTAMP"),
         ],
     )
@@ -434,7 +448,12 @@ def _build_anchor_query(blueprint: dict[str, Any], execution_ts: str, model_name
 
 
 def _build_tie_unique_keys(roles: list[dict[str, Any]]) -> list[str]:
-    """Build unique key column names from tie roles."""
+    """
+    Build unique key column names from tie roles.
+
+    Format: {ANCHOR}_{role}_ID or {ANCHOR}_ID_{role} based on whether anchor appears multiple times.
+    Example: OH_ID_in, OD_ID_isContained for tie OH_in_OD_isContained
+    """
     anchor_counts: dict[str, int] = {}
     for r in roles:
         anchor_counts[r["type"]] = anchor_counts.get(r["type"], 0) + 1
@@ -442,10 +461,9 @@ def _build_tie_unique_keys(roles: list[dict[str, Any]]) -> list[str]:
     unique_keys = []
     for r in roles:
         anchor_type = r["type"]
-        if anchor_counts[anchor_type] > 1:
-            unique_keys.append(f"{anchor_type}_{r['role']}_id")
-        else:
-            unique_keys.append(f"{anchor_type}_id")
+        role_name = r["role"]
+        # Always use format: ANCHOR_ID_role (matching official Anchor Modeler)
+        unique_keys.append(f"{anchor_type}_ID_{role_name}")
     return unique_keys
 
 
@@ -461,6 +479,7 @@ def _build_tie_select(
     tenant = source.get("tenant")
     table = source["table"]
     keys_config = source["keys"]
+    changed_at_col = source.get("changed_at")
 
     columns = []
     for role in roles:
@@ -471,18 +490,31 @@ def _build_tie_select(
         role_key = f"{anchor_type}_{role_name}"
         if role_key in keys_config:
             key = keys_config[role_key]
-            col_name = f"{anchor_type}_{role_name}_id"
         elif anchor_type in keys_config:
             key = keys_config[anchor_type]
-            col_name = f"{anchor_type}_id"
         else:
             raise ValueError(f"Tie {tie_name}: no key mapping for role {role_key} or {anchor_type}")
 
+        # Column name: ANCHOR_ID_role (e.g., OH_ID_in)
+        col_name = f"{anchor_type}_ID_{role_name}"
         keyset_expr = _build_keyset_expression(descriptor, system, key, tenant)
         columns.append(keyset_expr.as_(col_name))
 
+    # Add System, Tenant, ChangedAt, LoadedAt columns with tie name prefix
+    tenant_expr = exp.Literal.string(tenant) if tenant else exp.Null()
+
+    # ChangedAt: use source column if provided, otherwise use execution timestamp
+    if changed_at_col:
+        changed_at_expr = exp.Column(this=exp.to_identifier(changed_at_col))
+    else:
+        changed_at_expr = exp.cast(exp.Literal.string(execution_ts), exp.DataType.build("timestamp"))
+
     loaded_at_expr = exp.cast(exp.Literal.string(execution_ts), exp.DataType.build("timestamp"))
-    columns.append(loaded_at_expr.as_("loaded_at"))
+
+    columns.append(exp.Literal.string(system).as_(f"{tie_name}_System"))
+    columns.append(tenant_expr.as_(f"{tie_name}_Tenant"))
+    columns.append(changed_at_expr.as_(f"{tie_name}_ChangedAt"))
+    columns.append(loaded_at_expr.as_(f"{tie_name}_LoadedAt"))
 
     return exp.select(*columns).from_(table)
 
@@ -498,14 +530,25 @@ def _build_tie_query(blueprint: dict[str, Any], execution_ts: str, model_name: s
         raise ValueError(f"No sources defined for tie {tie_name}")
 
     unique_keys = _build_tie_unique_keys(roles)
+    system_col = f"{tie_name}_System"
+    tenant_col = f"{tie_name}_Tenant"
+    changed_at_col = f"{tie_name}_ChangedAt"
+    loaded_at_col = f"{tie_name}_LoadedAt"
+
     selects = [_build_tie_select(tie_name, roles, src, anchor_descriptors, execution_ts) for src in sources]
+
+    output_columns = (
+        [(k, "VARCHAR") for k in unique_keys]
+        + [(system_col, "VARCHAR"), (tenant_col, "VARCHAR")]
+        + [(changed_at_col, "TIMESTAMP"), (loaded_at_col, "TIMESTAMP")]
+    )
 
     return _build_incremental_query(
         source_query=_union_all(selects),
         model_name=model_name,
         unique_keys=unique_keys,
-        loaded_at_col="loaded_at",
-        output_columns=[(k, "VARCHAR") for k in unique_keys] + [("loaded_at", "TIMESTAMP")],
+        loaded_at_col=loaded_at_col,
+        output_columns=output_columns,
     )
 
 

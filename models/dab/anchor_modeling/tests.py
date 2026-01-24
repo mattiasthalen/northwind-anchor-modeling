@@ -79,7 +79,7 @@ class TestBuildTieUniqueKeys:
             {"type": "PR", "role": "product"},
         ]
         keys = blueprint._build_tie_unique_keys(roles)
-        assert keys == ["OR_id", "PR_id"]
+        assert keys == ["OR_ID_order", "PR_ID_product"]
 
     def test_same_anchor_type_different_roles(self):
         roles = [
@@ -87,7 +87,7 @@ class TestBuildTieUniqueKeys:
             {"type": "PE", "role": "employee"},
         ]
         keys = blueprint._build_tie_unique_keys(roles)
-        assert keys == ["PE_manager_id", "PE_employee_id"]
+        assert keys == ["PE_ID_manager", "PE_ID_employee"]
 
     def test_mixed_anchor_types(self):
         roles = [
@@ -96,7 +96,7 @@ class TestBuildTieUniqueKeys:
             {"type": "PE", "role": "employee"},
         ]
         keys = blueprint._build_tie_unique_keys(roles)
-        assert keys == ["OR_id", "PE_manager_id", "PE_employee_id"]
+        assert keys == ["OR_ID_order", "PE_ID_manager", "PE_ID_employee"]
 
 
 # ---------------------------------------------------------------------------
@@ -334,10 +334,11 @@ class TestBuildAnchorSelect:
         source = {"system": "nw", "table": "products", "key": "product_id"}
         select = blueprint._build_anchor_select("PR", "Product", source, "2024-01-01T00:00:00")
         sql = select.sql()
-        assert "PR_id" in sql
-        assert "PR_system" in sql
-        assert "PR_tenant" in sql
-        assert "PR_loaded_at" in sql
+        assert "PR_ID" in sql
+        assert "PR_System" in sql
+        assert "PR_Tenant" in sql
+        assert "PR_ChangedAt" in sql
+        assert "PR_LoadedAt" in sql
         assert "products" in sql
 
     def test_select_with_tenant(self):
@@ -368,9 +369,10 @@ class TestBuildTieSelect:
             "OR_order_PR_product", roles, source, anchor_descriptors, "2024-01-01T00:00:00"
         )
         sql = select.sql()
-        assert "OR_id" in sql
-        assert "PR_id" in sql
-        assert "loaded_at" in sql
+        assert "OR_ID_order" in sql
+        assert "PR_ID_product" in sql
+        assert "OR_order_PR_product_System" in sql
+        assert "OR_order_PR_product_LoadedAt" in sql
         assert "order_details" in sql
 
     def test_tie_select_with_role_specific_keys(self):
@@ -389,8 +391,8 @@ class TestBuildTieSelect:
             "PE_manager_PE_employee", roles, source, anchor_descriptors, "2024-01-01T00:00:00"
         )
         sql = select.sql()
-        assert "PE_manager_id" in sql
-        assert "PE_employee_id" in sql
+        assert "PE_ID_manager" in sql
+        assert "PE_ID_employee" in sql
 
     def test_tie_select_missing_key_raises(self):
         roles = [{"type": "XX", "role": "unknown"}]
@@ -450,7 +452,9 @@ class TestBuildAnchorQuery:
         }
         query = blueprint._build_anchor_query(bp, "2024-01-01T00:00:00", "dab.anchor__PR")
         sql = query.sql()
-        assert "PR_id" in sql
+        assert "PR_ID" in sql
+        assert "PR_System" in sql
+        assert "PR_LoadedAt" in sql
         assert "WITH" in sql
 
     def test_anchor_query_no_sources_raises(self):
@@ -469,8 +473,10 @@ class TestBuildTieQuery:
         }
         query = blueprint._build_tie_query(bp, "2024-01-01T00:00:00", "dab.tie__test")
         sql = query.sql()
-        assert "OR_id" in sql
-        assert "PR_id" in sql
+        assert "OR_ID_order" in sql
+        assert "PR_ID_product" in sql
+        assert "OR_order_PR_product_System" in sql
+        assert "OR_order_PR_product_LoadedAt" in sql
         assert "WITH" in sql
 
     def test_tie_query_no_sources_raises(self):
